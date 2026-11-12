@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -203,7 +205,7 @@ struct PageManager::Impl {
             last_fault_page = fault_page;
             fault_repeats = 0;
         } else if (++fault_repeats >= 4 && self && (addr >> PM_PAGE_BITS) < NUM_ADDRESS_PAGES &&
-                   self->cached_pages[addr >> PM_PAGE_BITS].num_read_watchers != 0) {
+                   self->ReadWatchers(addr >> PM_PAGE_BITS) != 0) {
             // (Only guest addresses: the SRT walker's garbage pointers fault at -1, reported for
             // non-canonical addresses; indexing the page table with that faulted inside this
             // handler, again and again: the game froze, 18 Oct evening.)
@@ -373,7 +375,52 @@ struct PageManager::Impl {
         release_pending();
     }
 
-    std::array<PageState, NUM_ADDRESS_PAGES> cached_pages{};
+    // gow3 12 Nov 2026 (SpartanPort 4763068, from Cosmo/gow3_xbox 574ecdf6a3): watcher counts
+    // are allocated per lock region on first use. The whole 40-bit address space as one array
+    // was 512 MiB, zeroed at startup, for a game that tracks a few GiB of it. Writers allocate
+    // under the region's lock; readers that may not allocate (the fault handler, IsReadWatched)
+    // use Find, where a missing chunk means no watchers.
+    class PageStates {
+    public:
+        PageStates() = default;
+        PageStates(const PageStates&) = delete;
+        PageStates& operator=(const PageStates&) = delete;
+        ~PageStates() {
+            for (auto& slot : chunks) {
+                delete[] slot.load(std::memory_order_relaxed);
+            }
+        }
+        PageState& operator[](size_t page) {
+            std::atomic<PageState*>& slot = chunks[page / PAGES_PER_LOCK];
+            PageState* chunk = slot.load(std::memory_order_acquire);
+            if (!chunk) [[unlikely]] {
+                chunk = Allocate(slot);
+            }
+            return chunk[page % PAGES_PER_LOCK];
+        }
+        const PageState* Find(size_t page) const {
+            const PageState* chunk = chunks[page / PAGES_PER_LOCK].load(std::memory_order_acquire);
+            return chunk ? &chunk[page % PAGES_PER_LOCK] : nullptr;
+        }
+
+    private:
+        static PageState* Allocate(std::atomic<PageState*>& slot) {
+            PageState* fresh = new PageState[PAGES_PER_LOCK]{};
+            PageState* existing = nullptr;
+            if (slot.compare_exchange_strong(existing, fresh, std::memory_order_acq_rel)) {
+                return fresh;
+            }
+            delete[] fresh;
+            return existing;
+        }
+        std::array<std::atomic<PageState*>, NUM_ADDRESS_LOCKS> chunks{};
+    };
+    PageStates cached_pages;
+    /// Read watchers of a page without allocating its chunk (0 when it has none).
+    u8 ReadWatchers(size_t page) const {
+        const PageState* state = cached_pages.Find(page);
+        return state ? __atomic_load_n(&state->num_read_watchers, __ATOMIC_RELAXED) : 0;
+    }
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
     using LockType = Common::AdaptiveMutex;
 #else
@@ -573,7 +620,7 @@ bool PageManager::IsReadWatched(VAddr addr) const {
     if (page >= Impl::NUM_ADDRESS_PAGES) {
         return false;
     }
-    return __atomic_load_n(&impl->cached_pages[page].num_read_watchers, __ATOMIC_RELAXED) != 0;
+    return impl->ReadWatchers(page) != 0;
 }
 
 template <bool track, bool is_read>

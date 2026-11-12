@@ -68,7 +68,9 @@ public:
 
 private:
     std::vector<L1Page*> first_level_map{};
-    Common::ObjectPool<L1Page> page_alloc;
+    // gow3 12 Nov 2026 (SpartanPort 4763068, from Cosmo/gow3_xbox 97d4f3e445): grow by a few
+    // page tables; the default chunk of 1024 committed ~90 MiB for the texture cache's few.
+    Common::ObjectPool<L1Page> page_alloc{8};
 };
 
 } // namespace VideoCore
