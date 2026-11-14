@@ -60,6 +60,18 @@ class SelfTests(unittest.TestCase):
         self.assertEqual(ph[0]['vaddr'], 0)
         self.assertEqual(missing, [])
 
+    def test_ps5_dumped_self_accepted(self):
+        data = fixture()
+        data[:4] = b'T\x14\xf5\xee'
+        elf, *_ = parse_self(data)
+        self.assertEqual(elf[0x1000:0x1010], bytes(range(16)))
+
+    def test_unknown_magic_rejected(self):
+        data = fixture()
+        data[:4] = b'\x7fELF'
+        with self.assertRaisesRegex(ValueError, 'expected PS4 SELF, found 7f 45 4c 46'):
+            parse_self(data)
+
     def test_truncated_payload_rejected(self):
         with self.assertRaisesRegex(ValueError, 'out of bounds'):
             parse_self(fixture()[:-1])

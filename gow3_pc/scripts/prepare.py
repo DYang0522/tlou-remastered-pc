@@ -24,9 +24,14 @@ def unpack(fmt, data, offset):
     return struct.unpack(fmt, span(data, offset, struct.calcsize(fmt)))
 
 
+# PS4 SELF magic, and the one a PS4 game dumped on a PS5 carries (54 14 F5 EE): the header after
+# it has the same layout (14 Nov 2026 report, update 1.11's eboot.bin dumped on a PS5).
+SELF_MAGICS = (b'O\x15=\x1d', b'T\x14\xf5\xee')
+
+
 def parse_self(data):
-    if span(data, 0, 4) != b'O\x15=\x1d':
-        raise ValueError("expected PS4 SELF")
+    if span(data, 0, 4) not in SELF_MAGICS:
+        raise ValueError(f"expected PS4 SELF, found {bytes(span(data, 0, 4)).hex(' ')}")
     count, = unpack('<H', data, 24)
     base = 32 + count * 32
     header = unpack('<16sHHIQQQIHHHHHH', data, base)
