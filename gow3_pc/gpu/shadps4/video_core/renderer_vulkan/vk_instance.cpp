@@ -346,7 +346,39 @@ bool PipelineBinaryCacheRequested() {
 // keeps it. A caller holding the key pointer in rbx then crashed reading 0x11 at startup. Pipeline
 // keys with a create info and the other binary calls keep rbx. The clobber makes this noinline
 // function save rbx on entry and restore it on return, whatever the driver leaves in it.
+// gow3 14 Nov 2026: on Windows (RTX 2060, user report) the same call came back with rsi = 1:
+// CreateDevice keeps `this` in rsi, and the game jumped to 00007ff700000000 at startup, right
+// after the extension list. A hand-written thunk keeps every register the Windows x64 ABI has the
+// callee keep (rbx, rbp, rsi, rdi, r12-r15, xmm6-xmm15), saved and restored through rsp alone: a
+// compiler epilogue restores the xmm registers through rbp, which the driver may clobber too.
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#ifdef _WIN32
+// rcx = function, rdx = device, r8 = key; calls function(device, nullptr, key).
+[[gnu::naked, gnu::noinline]] VkResult CallPipelineKeyKeepingRegisters(PFN_vkGetPipelineKeyKHR,
+                                                                       VkDevice,
+                                                                       VkPipelineBinaryKeyKHR*) {
+    asm volatile(
+        "push %rbp\n\tpush %rbx\n\tpush %rsi\n\tpush %rdi\n\t"
+        "push %r12\n\tpush %r13\n\tpush %r14\n\tpush %r15\n\t"
+        "sub $0xc8, %rsp\n\t" // 32 shadow bytes, 10 xmm registers, 16-byte alignment at the call
+        "movaps %xmm6, 0x20(%rsp)\n\tmovaps %xmm7, 0x30(%rsp)\n\t"
+        "movaps %xmm8, 0x40(%rsp)\n\tmovaps %xmm9, 0x50(%rsp)\n\t"
+        "movaps %xmm10, 0x60(%rsp)\n\tmovaps %xmm11, 0x70(%rsp)\n\t"
+        "movaps %xmm12, 0x80(%rsp)\n\tmovaps %xmm13, 0x90(%rsp)\n\t"
+        "movaps %xmm14, 0xa0(%rsp)\n\tmovaps %xmm15, 0xb0(%rsp)\n\t"
+        "mov %rcx, %rax\n\tmov %rdx, %rcx\n\txor %edx, %edx\n\t"
+        "call *%rax\n\t"
+        "movaps 0x20(%rsp), %xmm6\n\tmovaps 0x30(%rsp), %xmm7\n\t"
+        "movaps 0x40(%rsp), %xmm8\n\tmovaps 0x50(%rsp), %xmm9\n\t"
+        "movaps 0x60(%rsp), %xmm10\n\tmovaps 0x70(%rsp), %xmm11\n\t"
+        "movaps 0x80(%rsp), %xmm12\n\tmovaps 0x90(%rsp), %xmm13\n\t"
+        "movaps 0xa0(%rsp), %xmm14\n\tmovaps 0xb0(%rsp), %xmm15\n\t"
+        "add $0xc8, %rsp\n\t"
+        "pop %r15\n\tpop %r14\n\tpop %r13\n\tpop %r12\n\t"
+        "pop %rdi\n\tpop %rsi\n\tpop %rbx\n\tpop %rbp\n\t"
+        "ret");
+}
+#else
 [[gnu::noinline]] VkResult GetGlobalPipelineKeyKeepingRbx(VkDevice device,
                                                           VkPipelineBinaryKeyKHR* key) {
     const VkResult result = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPipelineKeyKHR(device, nullptr, key);
@@ -354,9 +386,14 @@ bool PipelineBinaryCacheRequested() {
     return result;
 }
 #endif
+#endif
 
 vk::Result GetGlobalPipelineKey(vk::Device device, vk::PipelineBinaryKeyKHR& key) {
-#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && defined(_WIN32)
+    return vk::Result{CallPipelineKeyKeepingRegisters(
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPipelineKeyKHR, static_cast<VkDevice>(device),
+        reinterpret_cast<VkPipelineBinaryKeyKHR*>(&key))};
+#elif defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
     return vk::Result{GetGlobalPipelineKeyKeepingRbx(
         static_cast<VkDevice>(device), reinterpret_cast<VkPipelineBinaryKeyKHR*>(&key))};
 #else
