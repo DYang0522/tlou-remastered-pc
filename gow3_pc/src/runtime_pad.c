@@ -517,10 +517,30 @@ static void key_axis(uint8_t *axis, bool negative, bool positive) {
     if (negative || positive) *axis=(uint8_t)(128-(negative ? 128 : 0)+(positive ? 127 : 0));
 }
 /* Walking: the left stick (keys and controller together) shortened to walk_speed of a full push,
- * keeping its direction; the WASD diagonals count as a full push too. */
-static void limit_left_stick(PadData *d, float limit) {
+ * keeping its direction; the WASD diagonals count as a full push too. The limit slides down from
+ * where the stick is (15 Nov 2026: cut at once from a full push, the game read the drop as letting
+ * go and stopped Joel before he walked; a thumb easing the stick back keeps him moving).
+ * GOW3_WALK_RAMP_MS: time from a full push to none (default 500, 0 = at once). */
+static void limit_left_stick(PadData *d, int walking, float walk_speed) {
+    static float limit=1.0f;
+    static uint64_t last;
+    static float rate=-1.0f;
+    if (rate<0) {
+        const char *e=getenv("GOW3_WALK_RAMP_MS");
+        const int ms=e && *e ? atoi(e) : 500;
+        rate=ms>0 ? 1000.0f/(float)ms : 1e9f;
+    }
+    const uint64_t now=now_us();
+    float dt=last ? (float)(now-last)*1e-6f : 0.0f;
+    last=now;
+    if (dt>0.1f) dt=0.1f;
     const float x=(d->left_x-128)/127.5f, y=(d->left_y-128)/127.5f;
     const float length=sqrtf(x*x+y*y);
+    if (!walking) { limit=1.0f; return; }
+    if (limit>walk_speed) {
+        limit=fminf(limit,length)-rate*dt;
+        if (limit<walk_speed) limit=walk_speed;
+    }
     if (length<=limit) return;
     const float scale=limit/length;
     d->left_x=(uint8_t)lrintf(128+x*scale*127.5f);
@@ -678,7 +698,7 @@ static void sample_host(PadData *d) {
         key_axis(&d->right_x,held[RS_LEFT],held[RS_RIGHT]);
         key_axis(&d->right_y,held[RS_UP],held[RS_DOWN]);
     }
-    if (walk_state(walk_held)) limit_left_stick(d,controls.walk_speed);
+    limit_left_stick(d,walk_state(walk_held),controls.walk_speed);
     if (sample_mouse(d)) keyboard_used=1;
     if (d->buttons & BTN_L2) d->l2=255;
     __atomic_store_n(&pad_aim_held,(d->buttons & BTN_L2) || d->l2>30,__ATOMIC_RELAXED);
