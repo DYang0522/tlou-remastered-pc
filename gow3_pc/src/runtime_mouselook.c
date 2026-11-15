@@ -288,43 +288,64 @@ static ABI void *tlou_camera_input(unsigned char *camera, const float *stick, vo
  * vector, 0 1 0; the controller measures the pitch between the two). It runs every frame, also
  * while not aiming. Pitch stays within 80 degrees. */
 static TurnDebug aim_debug = {.name = "aim"};
+static float dot3(const float *a, const float *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+/* v turned by angle about the unit axis k (Rodrigues; for k = +Y the same as turn_xz). */
+static void turn_about(float *v, const float *k, float angle) {
+    const float c = cosf(angle), s = sinf(angle), d = dot3(k, v) * (1.0f - c);
+    const float x = v[0], y = v[1], z = v[2];
+    v[0] = x * c + (k[1] * z - k[2] * y) * s + k[0] * d;
+    v[1] = y * c + (k[2] * x - k[0] * z) * s + k[1] * d;
+    v[2] = z * c + (k[0] * y - k[1] * x) * s + k[2] * d;
+}
 static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stick, float *direction, uint64_t flag,
-                                const float *up) {
+                                const float *up_in) {
     (void)out;
     (void)stick;
     (void)flag;
-    (void)up;
     if (!controller || !direction || !image) return NULL;
     __atomic_store_n(&aim_called_ms, now_ms(), __ATOMIC_RELAXED);
+    /* 15 Nov 2026 (Joel hanging upside down in Bill's Town aimed wrong): the turns are about the
+     * controller's own up vector, not the world's +Y (which stays the fallback), and the pitch
+     * limit is measured from it. */
+    float up[3] = {0.0f, 1.0f, 0.0f};
+    if (up_in && isfinite(up_in[0]) && isfinite(up_in[1]) && isfinite(up_in[2])) {
+        const float n = sqrtf(dot3(up_in, up_in));
+        if (n > 0.5f && n < 2.0f) {
+            up[0] = up_in[0] / n;
+            up[1] = up_in[1] / n;
+            up[2] = up_in[2] / n;
+        }
+    }
     float dx = 0, dy = 0;
     const int took = frame_look(controller, tlou_frame(), &dx, &dy);
     float asked = 0.0f;
-    char extra[64] = "";
+    char extra[96] = "";
     if (took && (dx != 0.0f || dy != 0.0f) && isfinite(direction[0]) && isfinite(direction[1]) &&
         isfinite(direction[2])) {
         const float per_count = look_scale(1);
         if (dx != 0.0f) {
             const float angle = -dx * per_count * look_invert_x();
-            turn_xz(direction, angle);
+            turn_about(direction, up, angle);
             asked = angle * 57.29578f;
         }
         if (dy != 0.0f) {
-            const float x = direction[0], y = direction[1], z = direction[2];
-            const float flat = sqrtf(x * x + z * z), length = sqrtf(x * x + y * y + z * z);
-            if (flat > 1e-4f && length > 1e-4f) {
-                float elevation = atan2f(y, flat) - dy * per_count * look_vertical();
+            const float length = sqrtf(dot3(direction, direction)), along = dot3(direction, up);
+            float flat[3] = {direction[0] - up[0] * along, direction[1] - up[1] * along, direction[2] - up[2] * along};
+            const float flat_length = sqrtf(dot3(flat, flat));
+            if (flat_length > 1e-4f && length > 1e-4f) {
+                float elevation = atan2f(along, flat_length) - dy * per_count * look_vertical();
                 const float limit = 80.0f * 0.017453292f;
                 elevation = elevation > limit ? limit : elevation < -limit ? -limit : elevation;
-                const float scale = length * cosf(elevation) / flat;
-                direction[0] = x * scale;
-                direction[2] = z * scale;
-                direction[1] = length * sinf(elevation);
+                const float f = length * cosf(elevation) / flat_length, u = length * sinf(elevation);
+                for (int i = 0; i < 3; ++i) direction[i] = flat[i] * f + up[i] * u;
             }
         }
     }
     if (look_debug()) {
-        snprintf(extra, sizeof(extra), ", elevation %.1f",
-                 atan2f(direction[1], sqrtf(direction[0] * direction[0] + direction[2] * direction[2])) * 57.29578f);
+        const float along = dot3(direction, up), length = sqrtf(dot3(direction, direction));
+        snprintf(extra, sizeof(extra), ", elevation %.1f, up %.2f %.2f %.2f",
+                 length > 1e-4f ? asinf(fmaxf(-1.0f, fminf(1.0f, along / length))) * 57.29578f : 0.0f, up[0], up[1],
+                 up[2]);
         turn_debug(&aim_debug, heading_of(direction), asked, extra);
     }
     return NULL;
