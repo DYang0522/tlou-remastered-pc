@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the starters TLOU Launcher.exe (tlou-launcher.c) and TLOU Game.exe (tlou-game.c): stripped,
-# with version information and a manifest (tlou-starter.rc). Small unsigned programs that start a
-# hidden interpreter without them look like malware loaders to antivirus heuristics (issues #88,
-# #112, #148). Needs clang and windres (MSYS2 CLANG64).
+# without a C runtime, with version information and a manifest (tlou-starter.rc). Small unsigned
+# programs that start a hidden interpreter look like malware loaders to antivirus heuristics
+# (issues #88, #112, #148). Needs clang and windres (MSYS2 CLANG64).
 # usage: build-starters.sh <TLOU Launcher.exe path> <TLOU Game.exe path> [--icon]
 #   --icon  gives TLOU Launcher.exe launcher/assets/icon.ico when it is there (not in the repository)
 set -euo pipefail
@@ -18,18 +18,17 @@ TMP=$(cygpath -w "$work")
 TEMP=$TMP
 export TMP TEMP
 
-version=$(tr -d '\r\n' < "$here/../tools/VERSION")
-IFS=. read -r major minor patch <<< "$version"
-patch=${patch%%[^0-9]*}
-printf '#define TLOU_VERSION %d,%d,%d,0\n#define TLOU_VERSION_STR "%s"\n' \
-    "$major" "$minor" "${patch:-0}" "$version" > "$work/tlou-version.h"
-
+# No C runtime (tlou-starter-crt.h): kernel32 and user32 only, no TLS callbacks or
+# VirtualProtect from the MinGW start-up code. No time stamp: the same sources and compiler give
+# the same bytes, so the files keep their hash (and any antivirus vendor's verdict) between
+# releases.
 build() {  # <source> <output> <windres options...>
     local source=$1 output=$2
     shift 2
-    windres -I "$here" -I "$work" "$@" "$here/tlou-starter.rc" -O coff -o "$work/resources.o"
-    clang -O2 -s -Wall -Wextra -Werror -static -municode -mwindows "$here/$source" \
-        "$work/resources.o" -o "$output"
+    windres -I "$here" "$@" "$here/tlou-starter.rc" -O coff -o "$work/resources.o"
+    clang -O2 -s -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -nostdlib \
+        -Wl,--subsystem,windows -Wl,-e,starter_entry -Wl,--no-insert-timestamp \
+        "$here/$source" "$work/resources.o" -lkernel32 -luser32 -o "$output"
 }
 
 launcher_options=(-DTLOU_STARTER_LAUNCHER)

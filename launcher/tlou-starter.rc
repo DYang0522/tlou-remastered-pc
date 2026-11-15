@@ -1,8 +1,12 @@
 // Resources of the starters (TLOU Launcher.exe, TLOU Game.exe), built by build-starters.sh: version
 // information and a manifest. Antivirus heuristics flag small unsigned programs that start a
 // hidden interpreter and carry neither (issues #88, #112, #148).
-// tlou-version.h is written by build-starters.sh from tools/VERSION.
-#include "tlou-version.h"
+// The starters' own version, not the release's: the same sources build the same bytes in every
+// release (build-starters.sh), so a false-positive report sent to an antivirus vendor for one
+// release's starters holds for the next. Raise it only when tlou-launcher.c, tlou-game.c or their
+// headers change.
+#define TLOU_VERSION 1,0,0,0
+#define TLOU_VERSION_STR "1.0"
 
 // The icon is the player's own picture (launcher/assets, not in the repository).
 #ifdef TLOU_STARTER_ICON

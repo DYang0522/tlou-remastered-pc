@@ -5,8 +5,7 @@
 #define TLOU_MESSAGES_H
 
 #include <windows.h>
-#include <string.h>
-#include <wchar.h>
+#include "tlou-starter-crt.h"
 
 enum { MSG_NO_LAUNCHER_SCRIPT, MSG_LAUNCHER_FAILED, MSG_NO_GAME_SCRIPT, MSG_GAME_FAILED, MSG_COUNT };
 
@@ -99,7 +98,7 @@ static int saved_language(const wchar_t *root)
 {
     static wchar_t path[32768];
     static char text[65536];
-    swprintf(path, 32768, L"%ls\\analysis\\tlou-user\\launcher.json", root);
+    format(path, 32768, L"%ls\\analysis\\tlou-user\\launcher.json", root);
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, NULL);
     if (file == INVALID_HANDLE_VALUE)
@@ -110,15 +109,15 @@ static int saved_language(const wchar_t *root)
     if (!ok)
         return -1;
     text[read] = 0;
-    const char *key = strstr(text, "\"ui_language\"");
+    const char *key = find_text(text, "\"ui_language\"");
     if (!key)
         return -1;
-    const char *value = strchr(key + 13, '"');
+    const char *value = find_char(key + 13, '"');
     if (!value)
         return -1;
     value++;
     for (size_t i = 0; i < LANGUAGE_COUNT; i++)
-        if (strncmp(value, LANGUAGE_CODES[i], 2) == 0 && value[2] == '"')
+        if (same_start(value, LANGUAGE_CODES[i], 2) && value[2] == '"')
             return (int)i;
     return -1;
 }
@@ -145,7 +144,7 @@ static const wchar_t *message(const wchar_t *dir, int id)
     static wchar_t parent[32768];
     int language = saved_language(dir);
     if (language < 0) {
-        swprintf(parent, 32768, L"%ls\\..", dir);
+        format(parent, 32768, L"%ls\\..", dir);
         language = saved_language(parent);
     }
     if (language < 0)

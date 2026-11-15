@@ -4,8 +4,6 @@
  * passed on. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <stdlib.h>
-#include <wchar.h>
 
 #include "tlou-messages.h"
 
@@ -19,12 +17,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
     DWORD length = GetModuleFileNameW(NULL, dir, 32768);
     if (length == 0 || length >= 32768)
         return 1;
-    wchar_t *slash = wcsrchr(dir, L'\\');
+    wchar_t *slash = last_char(dir, L'\\');
     if (slash)
         *slash = 0;
-    swprintf(script, 32768, L"%ls\\tlou_launcher.pyw", dir);
+    format(script, 32768, L"%ls\\tlou_launcher.pyw", dir);
     if (GetFileAttributesW(script) == INVALID_FILE_ATTRIBUTES)
-        swprintf(script, 32768, L"%ls\\launcher\\tlou_launcher.pyw", dir);
+        format(script, 32768, L"%ls\\launcher\\tlou_launcher.pyw", dir);
     if (GetFileAttributesW(script) == INVALID_FILE_ATTRIBUTES) {
         MessageBoxW(NULL, message(dir, MSG_NO_LAUNCHER_SCRIPT), TITLE,
                     MB_OK | MB_ICONERROR);
@@ -35,16 +33,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
      * (the repository), through cmd.exe: a version manager's pythonw on the PATH may be a batch
      * file. */
     const wchar_t *program;
-    swprintf(packaged, 32768, L"%ls\\python\\pythonw.exe", dir);
+    format(packaged, 32768, L"%ls\\python\\pythonw.exe", dir);
     if (GetFileAttributesW(packaged) != INVALID_FILE_ATTRIBUTES) {
         program = packaged;
-        swprintf(line, 32768, L"\"%ls\" \"%ls\"%ls%ls", packaged, script,
+        format(line, 32768, L"\"%ls\" \"%ls\"%ls%ls", packaged, script,
                  arguments && *arguments ? L" " : L"", arguments ? arguments : L"");
     } else {
         if (!GetEnvironmentVariableW(L"ComSpec", shell, MAX_PATH))
-            wcscpy(shell, L"C:\\Windows\\System32\\cmd.exe");
+            copy_text(shell, L"C:\\Windows\\System32\\cmd.exe");
         program = shell;
-        swprintf(line, 32768, L"\"%ls\" /c pythonw \"%ls\"%ls%ls", shell, script,
+        format(line, 32768, L"\"%ls\" /c pythonw \"%ls\"%ls%ls", shell, script,
                  arguments && *arguments ? L" " : L"", arguments ? arguments : L"");
     }
 
