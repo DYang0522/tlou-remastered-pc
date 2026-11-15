@@ -131,6 +131,11 @@ public:
     /// draws after it go there at the output resolution. True: skip the guest's draw, and the
     /// next frame starts here (the rasterizer calls OnFrameStart).
     bool OnComposite(u64 ps_hash, VideoCore::ImageId color);
+    /// tlou: a compute shader wrote the finished frame (render size) straight into the display
+    /// buffer `display` (GOW3_FRAME_CS, The Last of Us' tonemap): it is upscaled into the host
+    /// display buffer of the output size, where the HUD draws after it go. The caller starts the
+    /// next frame.
+    bool OnComputeComposite(VideoCore::ImageId display);
     [[nodiscard]] bool CompositeFrames() const noexcept {
         return composite_frames;
     }
@@ -263,6 +268,11 @@ private:
     /// Upscales source (the finished frame at the render size) into ui_image; draws into source
     /// go to ui_image after it.
     void UpscaleToUi(VideoCore::ImageId source);
+    /// Copies ui_image into the host display buffer for `address` (OnComposite's last step).
+    bool CopyUiToDisplay(VAddr address, vk::Format format);
+    /// The format storage writes reach ui_image through: 8-bit frames through an RGBA8 UNORM
+    /// view (sRGB images cannot be storage), others (10-bit) in their own format.
+    [[nodiscard]] vk::Format UiStorageFormat() const;
     u64 composite_ps = 0;
     u64 tonemap_ps = 0;               ///< the draw finishing the frame (GOW3_UI_TONEMAP_PS)
     VideoCore::ImageId tonemap_target{};

@@ -71,6 +71,9 @@ CameraMotion::CameraMotion(const Instance& instance_, Scheduler& scheduler_,
         list = *end == ',' ? end + 1 : end;
     }
     velocity_mode = for_upscaler && !velocity_shaders.empty();
+    if (const char* layout = std::getenv("GOW3_VELOCITY_LAYOUT")) {
+        view_clip_layout = std::strcmp(layout, "view_clip") == 0;
+    }
     if (const char* size = std::getenv("GOW3_SCENE_SIZE")) {
         u32 w = 0, h = 0;
         if (std::sscanf(size, "%ux%u", &w, &h) == 2 && w && h) {
@@ -305,10 +308,26 @@ void CameraMotion::OnVelocityConstants(const float* c, u32 dwords) {
     //   p = M view + t (M, t: rows c12..c23; pixels with stencil bits 0xc0 add c56..c58)
     //   previous clip x, y, w = rows c40..c43, c44..c47, c52..c55 applied to (p, 1)
     //   previous uv = (0.5 x / w + 0.5, 0.5 - 0.5 y / w)
+    // tlou (view_clip_layout, ps dbdfaf50): the same z and view, then previous clip x, y, w =
+    // rows c12..c15, c16..c19, c20..c23 applied to (view, 1) directly; c24..c33 scale the
+    // result for its motion blur, c36.. shockwave distortions (its first target).
+    auto& camera = velocity_camera;
+    if (view_clip_layout) {
+        if (dwords < 24) {
+            return;
+        }
+        std::copy(c + 12, c + 24, camera.to_previous_clip.begin());
+        camera.uv_to_view = {c[0], c[1], c[2], c[3]};
+        camera.depth_to_z = {c[8], c[9]};
+        camera.valid = c[9] != 0.0f &&
+                       std::all_of(camera.to_previous_clip.begin(),
+                                   camera.to_previous_clip.end(),
+                                   [](float v) { return std::isfinite(v); });
+        return;
+    }
     if (dwords < 60) {
         return;
     }
-    auto& camera = velocity_camera;
     const float* rows[3] = {c + 40, c + 44, c + 52};
     for (int r = 0; r < 3; ++r) {
         for (int col = 0; col < 4; ++col) {

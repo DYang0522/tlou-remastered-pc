@@ -365,6 +365,11 @@ private:
 
     /// Display pass: counts the frame (Gow3Stats::gpu_frames) and, with GOW3_BUFFER_STATS, the lag.
     void NoteFrameStart();
+    /// gow3: a new frame for the camera tracking and the upscaler; `frame` is the finished one.
+    void StartFrame(VideoCore::ImageId frame);
+    /// tlou: GOW3_FRAME_CS=<hash>,...: compute shaders writing the finished frame into a display
+    /// buffer (The Last of Us' tonemap 15d34dcb): the frame ends there, not at a draw.
+    void OnFrameCompute(const Shader::Info& cs);
     /// GOW3_GPU_PROFILE: a timestamp where a render pass starts (vk_gpu_profiler.h).
     void MarkPass(const GraphicsPipeline* pipeline, const RenderState& state);
     void BindVertexBuffers(const GraphicsPipeline* pipeline,

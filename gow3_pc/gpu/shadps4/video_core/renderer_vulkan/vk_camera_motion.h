@@ -131,6 +131,10 @@ private:
     bool velocity_mode = false;
     u32 scene_width = 1920, scene_height = 1080;
     std::vector<u64> velocity_shaders;
+    /// tlou: GOW3_VELOCITY_LAYOUT=view_clip: the velocity pass's rows c12..c23 take the view
+    /// position straight to the previous clip x, y, w (The Last of Us, ps dbdfaf50); otherwise
+    /// c12..c23 are view to world and c40..c55 world to previous clip (Uncharted, f4b18264).
+    bool view_clip_layout = false;
     /// The velocity pass's camera this frame: view position from depth and uv, and the 3x4
     /// view to previous clip (x, y, w rows).
     struct VelocityCamera {

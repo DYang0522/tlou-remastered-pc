@@ -220,7 +220,11 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     if (const char* ps = std::getenv("GOW3_UI_TONEMAP_PS")) {
         tonemap_ps = u32(std::strtoull(ps, nullptr, 16));
     }
-    composite_frames = enabled && scaled_session && composite_ps && camera_motion.VelocityMode() &&
+    // tlou: or a compute shader writes the finished frame into the display buffer (GOW3_FRAME_CS,
+    // OnComputeComposite).
+    const char* frame_cs = std::getenv("GOW3_FRAME_CS");
+    composite_frames = enabled && scaled_session && (composite_ps || (frame_cs && frame_cs[0])) &&
+                       camera_motion.VelocityMode() &&
                        (render_width < target_width || render_height < target_height);
     if (composite_frames) {
         std::printf("Upscaler: the game draws %ux%u, frames are upscaled to %ux%u at pixel shader "
@@ -816,7 +820,7 @@ void TemporalUpscaler::ExtraSharpen(vk::CommandBuffer cmdbuf, vk::Image target, 
             // The UI image's own format may be sRGB; FSR 3 writes it through a UNORM view too.
             ui_storage_view = Check(device.createImageViewUnique({
                 .image = target, .viewType = vk::ImageViewType::e2D,
-                .format = vk::Format::eR8G8B8A8Unorm,
+                .format = UiStorageFormat(),
                 .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
             }));
         }
@@ -1822,7 +1826,7 @@ void TemporalUpscaler::RunScaled() {
                                   vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
                                   vk::ImageAspectFlagBits::eColor,
                                   FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
-    info.output = Describe(vk::Image(ui_image), vk::Format::eR8G8B8A8Unorm, ow, oh,
+    info.output = Describe(vk::Image(ui_image), UiStorageFormat(), ow, oh,
                            vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
                                vk::ImageUsageFlagBits::eColorAttachment,
                            vk::ImageAspectFlagBits::eColor,
@@ -2124,11 +2128,31 @@ bool TemporalUpscaler::OnComposite(u64 ps_hash, VideoCore::ImageId color) {
         }
         UpscaleToUi(ldr_target);
     }
+    return CopyUiToDisplay(address, target.info.pixel_format);
+}
+
+bool TemporalUpscaler::OnComputeComposite(VideoCore::ImageId display_id) {
+    if (!composite_frames || !display_id) {
+        return false;
+    }
+    const auto& image = texture_cache.GetImage(display_id);
+    const VAddr address = image.info.guest_address;
+    if (!FrameCapture::IsDisplayBuffer(address) ||
+        !RenderTarget(image.info.size.width, image.info.size.height)) {
+        return false;
+    }
+    if (!ui_phase) {
+        UpscaleToUi(display_id);
+    }
+    return CopyUiToDisplay(address, image.info.pixel_format);
+}
+
+bool TemporalUpscaler::CopyUiToDisplay(VAddr address, vk::Format format) {
     // ui_image -> the host display buffer, byte for byte: the game's copy already holds the
     // sRGB-encoded values its composite writes through an sRGB buffer unchanged (a blit would
     // encode them a second time: a washed-out picture).
     std::scoped_lock lock{display_mutex};
-    auto& display = HostDisplay(address, target.info.pixel_format);
+    auto& display = HostDisplay(address, format);
     scheduler.EndRendering();
     const auto cmd = scheduler.CommandBuffer();
     const std::array before{
@@ -2177,6 +2201,19 @@ bool TemporalUpscaler::OnComposite(u64 ps_hash, VideoCore::ImageId color) {
     display.valid = true;
     composite_done = true;
     return true;
+}
+
+vk::Format TemporalUpscaler::UiStorageFormat() const {
+    switch (ui_format) {
+    case vk::Format::eR8G8B8A8Unorm:
+    case vk::Format::eR8G8B8A8Srgb:
+    case vk::Format::eB8G8R8A8Unorm:
+    case vk::Format::eB8G8R8A8Srgb:
+    case vk::Format::eUndefined:
+        return vk::Format::eR8G8B8A8Unorm;
+    default:
+        return ui_format;
+    }
 }
 
 bool TemporalUpscaler::RedirectDepth(VideoCore::ImageId depth, Target& target) {

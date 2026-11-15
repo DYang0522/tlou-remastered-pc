@@ -257,6 +257,40 @@ def parse_size(text):
     return width & ~15, height & ~1
 
 
+# Temporal anti-aliasing and upscaling (the launcher's Upscaler and Upscaler quality: upscaler and
+# preset in tlou.ini; the in-game menu changes the upscaler live, the quality needs a restart). The
+# renderer's upscaler (TemporalUpscaler, from the GOW3/Uncharted ports) needs this game's frame:
+#   - the camera: the motion blur's camera velocity pass, ps dbdfaf50 (960x540 RG16F). Its constants
+#     give z = c9 / (depth - c8), view = z (c0 u + c2, c1 v + c3) and rows c12..c23 take the view
+#     position straight to the previous clip x, y, w (GOW3_VELOCITY_LAYOUT=view_clip);
+#   - the scene depth: the frame's first pass at the render size (the depth prepass, D32S8);
+#   - at the native size the anti-aliasing runs on the lit HDR scene color (RGBA16F) before the post
+#     processing reads it (cs 8bfb95d1, the first one that does, after the velocity pass);
+#   - the frame ends in the tonemap compute shader 15d34dcb, which writes the finished frame
+#     straight into the display buffer (A2B10G10R10); the HUD is drawn over it there. No draw
+#     copies the frame to the display buffer as in the other games, so frames start there
+#     (GOW3_FRAME_CS). Below the output size the game draws at the reduced size (the render size
+#     patch) and that frame is upscaled there into an output-size display buffer, where the HUD
+#     is then drawn at the output size;
+#   - the sun shadow mask (ps a1f94b7c) rebuilds positions from the scene depth: it gets the
+#     scene's jitter (GOW3_JITTER_PS), or its shadows would crawl with every jitter step.
+# TLOU_UPSCALER_HOOKS=0 leaves all of it out (the upscaler options then do nothing).
+UPSCALER_SCALES = (1.0, 1.5, 1.7, 2.0, 3.0)     # Native AA, Quality, Balanced, Performance, Ultra
+UPSCALERS = ("fsr3", "fsr4", "fsr411", "taa", "dlss")
+
+
+def upscaled_render_size(output, preset):
+    """The reduced size the game draws at for an upscaler quality preset (None at native)."""
+    if not 0 < preset < len(UPSCALER_SCALES):
+        return None
+    scale = UPSCALER_SCALES[preset]
+    height = max(360, int(round(output[1] / scale / 2)) * 2)
+    width = max(640, int(round(height * output[0] / output[1] / 16)) * 16)
+    if width >= output[0] or height >= output[1]:
+        return None
+    return width, height
+
+
 def render_extra_mib(size):
     """GPU memory added for render targets at this size (0 up to 1080p's pixel count)."""
     pixels = size[0] * size[1] / (RENDER_DEFAULT[0] * RENDER_DEFAULT[1])
@@ -662,14 +696,27 @@ def main():
     size = parse_size(chosen) or RENDER_DEFAULT
     if chosen and not parse_size(chosen):
         print(f"Resolution: '{chosen}' is not <width>x<height>; the game's own 1920x1080")
+    output = size
+    upscaler_hooks = os.environ.get("TLOU_UPSCALER_HOOKS", "1") != "0"
+    upscaler = (os.environ.get("GOW3_UPSCALER") or ini_value(Path(env["GOW3_CONFIG"]), "upscaler")
+                or "off").strip()
+    try:
+        preset = int((os.environ.get("TLOU_UPSCALER_PRESET")
+                      or ini_value(Path(env["GOW3_CONFIG"]), "preset") or "0").strip())
+    except ValueError:
+        preset = 0
+    upscaled = upscaled_render_size(output, preset) if upscaler_hooks and upscaler in UPSCALERS else None
+    if upscaled:
+        size = upscaled
     resolution_patch = f"resolution {size[0]}x{size[1]}"
     extra = render_extra_mib(size)
     if size != RENDER_DEFAULT:
         patches[resolution_patch] = render_size_patch(size, extra)
-    # TLOU_ASPECT=0 leaves another aspect ratio than 16:9 stretched.
-    aspect_name = f"aspect ratio {size[0]}:{size[1]}"
-    if not is_16_9(size) and os.environ.get("TLOU_ASPECT") != "0":
-        patches[aspect_name] = aspect_patch(size)
+    # TLOU_ASPECT=0 leaves another aspect ratio than 16:9 stretched. The output size's aspect: a
+    # reduced render size is rounded to whole blocks of 16 pixels.
+    aspect_name = f"aspect ratio {output[0]}:{output[1]}"
+    if not is_16_9(output) and os.environ.get("TLOU_ASPECT") != "0":
+        patches[aspect_name] = aspect_patch(output)
     for name in [c.strip() for c in os.environ.get("TLOU_CHEATS", "flashlight").split(",") if c.strip()]:
         if name in CHEATS:
             patches[name] = CHEATS[name]
@@ -682,6 +729,9 @@ def main():
             command += ["--patches", str(patch_file)]
     if resolution_patch not in applied:
         size, extra = RENDER_DEFAULT, 0
+        if upscaled:
+            print("Upscaling: the render size patch did not apply; the game draws at 1920x1080")
+            upscaled, output = None, RENDER_DEFAULT
     elif extra:
         env["GOW3_DMEM_REPORT_MB"] = str(4608 + extra)
         pool = int(env.get("GOW3_DMEM_MB", "0") or 0)
@@ -691,7 +741,26 @@ def main():
     env["GOW3_GAME_RESOLUTION"] = f"{size[0]}x{size[1]}"
     # The movies (the cutscenes) keep 16:9 in a display of this aspect ratio, with black bars.
     if aspect_name in applied:
-        env["GOW3_DISPLAY_ASPECT"] = f"{size[0]}x{size[1]}"
+        env["GOW3_DISPLAY_ASPECT"] = f"{output[0]}x{output[1]}"
+    if upscaler_hooks:
+        env.setdefault("GOW3_VELOCITY_PS", "dbdfaf50")
+        env.setdefault("GOW3_VELOCITY_LAYOUT", "view_clip")
+        env.setdefault("GOW3_UPSCALE_BEFORE_CS", "8bfb95d1")
+        env.setdefault("GOW3_FRAME_CS", "15d34dcb")
+        env.setdefault("GOW3_JITTER_PS", "a1f94b7c")
+        # The characters' own motion comes from the other games' vertex shaders: camera motion only.
+        env.setdefault("GOW3_CHARACTER_MOTION", "0")
+        env["GOW3_SCENE_SIZE"] = f"{size[0]}x{size[1]}"
+        fsr4 = ROOT / "gow3_pc/fsr4_shaders"
+        if fsr4.is_dir():
+            env.setdefault("GOW3_FSR4_DIR", str(fsr4))
+        if upscaled:
+            env["GOW3_RENDER_RES"] = f"{size[0]}x{size[1]}"
+            env["GOW3_OUTPUT_RES"] = f"{output[0]}x{output[1]}"
+            print(f"Upscaling: {size[0]}x{size[1]} -> {output[0]}x{output[1]} ({upscaler}, quality "
+                  f"preset {preset})", flush=True)
+    else:
+        env["GOW3_UPSCALER"] = "none"
     print(f"Resolution: the game draws at {size[0]}x{size[1]}"
           + (f" ({extra} MiB more for its render targets)" if extra else ""), flush=True)
     if red_zone:

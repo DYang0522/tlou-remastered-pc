@@ -1330,8 +1330,11 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
         // depth (after the reference port; the size is the patched render size, ultrawide too).
         const auto& depth = texture_cache.GetImage(db_desc.first);
         const auto [scene_w, scene_h] = camera_motion->SceneSize();
-        bool scene_pass = !cb_descs[0].first;
-        if (cb_descs[0].first) {
+        // tlou: cb_descs[0] keeps the previous draw's target when this pipeline has no color
+        // output (the loop above stops at the mask's width): a depth prepass is depth-only.
+        const bool color0 = (key.mrt_mask & 1) && cb_descs[0].first;
+        bool scene_pass = !color0;
+        if (color0) {
             const auto& color = texture_cache.GetImage(cb_descs[0].first);
             scene_pass = color.info.pixel_format == vk::Format::eR16G16B16A16Sfloat &&
                          color.info.size.width == scene_w && color.info.size.height == scene_h;
@@ -1342,12 +1345,12 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
             camera_motion->OnGBufferPass(db_desc.first);
         }
     }
-    if (upscaler->Enabled() && cb_descs[0].first) {
+    if (upscaler->Enabled() && (key.mrt_mask & 1) && cb_descs[0].first) {
         upscaler->OnColorTarget(cb_descs[0].first);
     }
     // gow3: scene color: a full-size RGBA16F target drawn with the scene depth.
     if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth() &&
-        cb_descs[0].first && std::popcount(key.mrt_mask) <= 2) {
+        (key.mrt_mask & 1) && cb_descs[0].first && std::popcount(key.mrt_mask) <= 2) {
         const auto& color = texture_cache.GetImage(cb_descs[0].first);
         const auto& depth = texture_cache.GetImage(db_desc.first);
         if (color.info.pixel_format == vk::Format::eR16G16B16A16Sfloat &&
@@ -2381,6 +2384,81 @@ static bool JitterFullScreenPass(u64 hash) {
     return std::find(listed.begin(), listed.end(), u64(u32(hash))) != listed.end();
 }
 
+namespace {
+int jitter_log_frame = -1;
+}
+static bool JitterLogFrame() {
+    static const int first = [] {
+        const char* env = std::getenv("GOW3_JITTER_LOG");
+        return env ? std::atoi(env) : -1;
+    }();
+    return first >= 0 && jitter_log_frame >= first && jitter_log_frame < first + 2;
+}
+
+void Rasterizer::StartFrame(VideoCore::ImageId frame) {
+    ++jitter_log_frame;
+    if (JitterLogFrame()) {
+        std::printf("JitterLog: frame %d starts (jitter %.3f %.3f before)\n", jitter_log_frame,
+                    upscaler->Jitter()[0], upscaler->Jitter()[1]);
+    }
+    scene_started = false;
+    camera_motion->OnDisplayPass(frame);
+    if (upscaler->OnFrameStart()) {
+        object_motion->InvalidateHistory();
+        camera_motion->InvalidateHistory();
+    }
+    camera_motion->SetJitter(upscaler->Jitter());
+    object_motion->OnFrameStart();
+    NoteFrameStart();
+    static const char* scene_debug = std::getenv("GOW3_SCENE_DEBUG");
+    static auto scene_debug_poll = std::chrono::steady_clock::time_point{};
+    scene_debug_frame =
+        scene_debug && TriggerPollDue(scene_debug_poll) && std::remove(scene_debug) == 0;
+    scene_targets->debug = scene_debug_frame;
+}
+
+void Rasterizer::OnFrameCompute(const Shader::Info& cs) {
+    static const std::vector<u64> frame_shaders = [] {
+        std::vector<u64> list;
+        for (const char* p = std::getenv("GOW3_FRAME_CS"); p && *p;) {
+            char* end;
+            const u64 value = std::strtoull(p, &end, 16);
+            if (end == p) {
+                break;
+            }
+            list.push_back(u64(u32(value)));
+            p = *end == ',' ? end + 1 : end;
+        }
+        return list;
+    }();
+    if (frame_shaders.empty() || !camera_motion->Enabled() ||
+        std::ranges::find(frame_shaders, u64(u32(cs.pgm_hash))) == frame_shaders.end()) {
+        return;
+    }
+    // The display buffer the shader wrote (a storage image).
+    for (const auto& image_desc : cs.images) {
+        if (!image_desc.is_written) {
+            continue;
+        }
+        const auto tsharp = image_desc.GetSharp(cs);
+        const VAddr address = tsharp.Address();
+        if (!FrameCapture::IsDisplayBuffer(address)) {
+            continue;
+        }
+        VideoCore::TextureCache::ImageDesc desc(tsharp, image_desc);
+        const VideoCore::ImageId frame = texture_cache.FindImage(desc);
+        // Below the output size the finished frame is upscaled into the output-size host display
+        // buffer here; the HUD drawn into the guest one after it goes there too.
+        if (upscaler->CompositeFrames()) {
+            upscaler->OnComputeComposite(frame);
+        }
+        // The HUD draws into this display buffer after it start no second frame (DrawRecord).
+        frame_display_address = address;
+        StartFrame(frame);
+        return;
+    }
+}
+
 void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw* used_prepared,
                             bool is_indexed, u32 index_offset) {
     const auto* fragment=pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
@@ -2480,22 +2558,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         scheduler.PopPendingOperations();
     }
     const auto& regs = Regs();
-    const auto frame_start = [&] {
-        scene_started = false;
-        camera_motion->OnDisplayPass(cb_descs[0].first);
-        if (upscaler->OnFrameStart()) {
-            object_motion->InvalidateHistory();
-            camera_motion->InvalidateHistory();
-        }
-        camera_motion->SetJitter(upscaler->Jitter());
-        object_motion->OnFrameStart();
-        NoteFrameStart();
-        static const char* scene_debug = std::getenv("GOW3_SCENE_DEBUG");
-        static auto scene_debug_poll = std::chrono::steady_clock::time_point{};
-        scene_debug_frame =
-            scene_debug && TriggerPollDue(scene_debug_poll) && std::remove(scene_debug) == 0;
-        scene_targets->debug = scene_debug_frame;
-    };
+    const auto frame_start = [&] { StartFrame(cb_descs[0].first); };
     // gow3: the pass copying a finished frame to a display buffer; the previous draw's
     // target is that frame. 19 Oct 2026 (kj2223): a game may
     // draw twice into the same display buffer per frame (484cdbf5, then 749bbec9; measured 2
@@ -2713,6 +2776,20 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
                         u32(ps->pgm_hash));
         }
     }
+    // tlou diagnostics (GOW3_JITTER_LOG=<first frame>): two frames of draws with a depth target:
+    // the depth, whether it is the scene depth, the jitter, the depth test and the counts.
+    if (JitterLogFrame() && db_desc.first) {
+        const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+        std::printf("JitterLog: vs %08x ps %08x depth %#llx scene %d func %u write %u idx %u inst %u "
+                    "jitter %.3f %.3f clipdis %d\n",
+                    u32(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash),
+                    ps ? u32(ps->pgm_hash) : 0u,
+                    static_cast<unsigned long long>(texture_cache.GetImage(db_desc.first).info.guest_address),
+                    int(db_desc.first == camera_motion->Depth()), u32(regs.depth_control.depth_func),
+                    u32(regs.depth_control.depth_write_enable), regs.num_indices,
+                    regs.num_instances.NumInstances(), draw_jitter[0], draw_jitter[1],
+                    int(regs.IsClipDisabled()));
+    }
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
     scheduler.BeginRendering(state);
@@ -2759,7 +2836,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             const auto sharp = prepared_stage ? prepared_stage->buffer_sharps[0]
                                               : ps->buffers[0].GetSharp(*ps);
             const u32 bytes = sharp.GetSize();
-            if (sharp.base_address && bytes >= 64 * sizeof(float) &&
+            if (sharp.base_address && bytes >= 24 * sizeof(float) &&
                 memory->IsValidGpuMapping(sharp.base_address, bytes)) {
                 camera_motion->OnVelocityConstants(
                     reinterpret_cast<const float*>(sharp.base_address), bytes / sizeof(float));
@@ -3335,6 +3412,8 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
     DebugState.IncDispatch();
 
     ResetBindings(true);
+    // tlou: after ResetBindings, so an upscale of the frame it wrote waits for the dispatch.
+    OnFrameCompute(cs);
     // (After ResetBindings: the dispatch's writes are tracked then, so the copies wait for them.)
     PeekSkinOutputs();
     if (ClothTraceEnabled() && (cs.pgm_hash == 0x1c957b01 || cs.pgm_hash == 0x809864d3)) {
