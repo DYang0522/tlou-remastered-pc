@@ -12,6 +12,7 @@
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
+#include "video_core/renderer_vulkan/vk_low_vram.h"
 #include "gow3_overlay.h"
 #include "gow3_settings.h"
 #include "gow3_graphics.h"
@@ -174,7 +175,17 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
     // 90-170 ms right after loading (35 compiles of 10-15 ms in 5 s); with the warm-up (2,440
     // pipelines in 16 s on background threads during the title screen) none were left in play.
     // GOW3_ON_DEMAND_PIPELINES=1 keeps the on-demand start.
-    if (EmulatorSettingsImpl::Flag("GOW3_ON_DEMAND_PIPELINES", false) &&
+    // gow3 15 Nov 2026: on demand by default in the low video memory mode (vk_low_vram.h). The
+    // warm-up builds every cached pipeline (~10,800 after a long play): on a GTX 1050 Ti that held
+    // ~270 MiB more video memory and ~14 GB more committed system memory (5.9 vs 20 GB private),
+    // which on a 16 GB PC ran out (std::bad_alloc, GitHub #177's world load). The cost: shaders
+    // first used in play are prepared then (short hitches). GOW3_ON_DEMAND_PIPELINES=0: warm-up.
+    const bool on_demand_default = LowVram::Enabled();
+    if (on_demand_default && !std::getenv("GOW3_ON_DEMAND_PIPELINES")) {
+        std::printf("GPU: low video memory mode: cached pipelines are loaded on demand, not warmed "
+                    "up (GOW3_ON_DEMAND_PIPELINES=0: warm-up)\n");
+    }
+    if (EmulatorSettingsImpl::Flag("GOW3_ON_DEMAND_PIPELINES", on_demand_default) &&
         UseOnDemandPipelines(binary_cache, instance.GetPipelineBinaryGlobalKey().keySize != 0,
                             capture_only)) {
         rasterizer->GetPipelineCache().StartOnDemand();

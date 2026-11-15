@@ -402,6 +402,11 @@ public:
     /// memory report: the difference is room VMA holds that nothing uses).
     void GetVmaDeviceLocalUsage(u64& block_bytes, u64& allocation_bytes) const;
 
+    /// gow3: unbound sparse memory reads 0 (VkPhysicalDeviceSparseProperties).
+    bool IsResidencyNonResidentStrict() const {
+        return properties.sparseProperties.residencyNonResidentStrict;
+    }
+
     /// Returns if the device is an integrated GPU.
     bool IsIntegrated() const {
         return properties.deviceType == vk::PhysicalDeviceType::eIntegratedGpu;

@@ -18,8 +18,15 @@
 //   - the texture collector works from the room the driver's budget leaves for images, evicts
 //     images idle for fewer frames the higher the pressure, and runs at once after an
 //     allocation went over the budget.
+//   - (15 Nov 2026) cached pipelines load on demand instead of the warm-up building all of them
+//     (GOW3_ON_DEMAND_PIPELINES=0: warm-up): ~270 MiB of video memory and ~14 GB of committed
+//     system memory less with a large cache; the BDA page table is sparse (GOW3_SPARSE_PAGETABLE,
+//     drivers whose unbound memory reads 0): 128 MiB -> under 1 MiB.
 // In every mode an image or buffer that does not fit the budget is retried outside it (the driver
-// pages) and a device-local buffer then goes to system memory, instead of an assertion.
+// pages) and a device-local buffer then goes to system memory, instead of an assertion; arena
+// memory comes in allocations of at most 64 MiB, and blocks the driver has no memory for stay
+// unbound for a while (shaders read 0 there) while unused arena windows are given back, instead
+// of an assertion (GitHub #174, #177: drivers that do not page, e.g. GTX 750 Ti / GT 1030).
 //
 // GOW3_LOW_VRAM=auto (default): on for discrete cards with 3 GiB or less of video memory;
 // =1: on; =0: off. The idea and several of the numbers follow the Uncharted port's small-card

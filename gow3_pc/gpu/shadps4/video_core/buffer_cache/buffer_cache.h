@@ -365,6 +365,9 @@ private:
 
     const Buffer* GetArena(u64 first_block, u64 last_block);
 
+    /// Binds memory to the blocks of [first_block, last_block] that have none. gow3 15 Nov 2026:
+    /// blocks no memory could be found for (the card is full) stay unbound and are listed in
+    /// `unbacked_blocks` (ObtainBuffer uploads them again once they are bound).
     void EnsureResident(const Buffer* arena, u64 first_block, u64 last_block);
 
     void DownloadMemory(const Buffer* arena, VAddr device_addr, u64 size);
@@ -1012,6 +1015,43 @@ private:
     /// gow3: arena memory in chunks allocated ahead on a background thread (buffer_cache.cpp).
     struct ResidencyPool;
     std::unique_ptr<ResidencyPool> residency_pool;
+
+    /// gow3 15 Nov 2026 (GitHub #174, #177, #129, #71: the game stopped on
+    /// ErrorOutOfDeviceMemory while making arena memory resident, on 2 GB cards whose driver does
+    /// not page and once on a 6 GB card at a world load): video memory for `bytes` of arena,
+    /// from the reserve or the driver, at most ArenaAllocationMax per allocation. When the driver
+    /// refuses, recycled images are freed and it is asked again; false when that fails too.
+    bool AllocateArenaMemory(u64 bytes, vk::DeviceMemory& memory, u8*& mapped, u64& offset);
+    static constexpr u64 ArenaAllocationMax = u64{64} << 20;
+    /// Block ranges EnsureResident left unbound (no memory) in the current ObtainBuffer call.
+    boost::container::small_vector<std::pair<u64, u64>, 4> unbacked_blocks;
+    /// An arena allocation failed: the next ReclaimArenaMemory gives back windows unused for
+    /// a few seconds, whatever the limit.
+    bool arena_starved = false;
+    u64 arena_failures = 0;
+
+    /// gow3 15 Nov 2026, low video memory mode: the BDA page table (8 bytes per block of the
+    /// 40-bit guest address space, 128 MiB of video memory) is a sparse buffer whose 64 KiB
+    /// pages are bound when a block they describe first becomes resident; unbound pages read 0
+    /// (= not resident) on drivers with residencyNonResidentStrict. The game's GPU memory spans
+    /// a few GiB, so a few MiB of it are bound. Pages come from 2 MiB chunks the GPU zeroed
+    /// before any of them is bound: shaders still running may read a page the moment it is
+    /// bound, and must see 0 there, not a stray address.
+    bool sparse_pagetable = false;
+    u64 pagetable_page_size = 0;
+    std::vector<bool> pagetable_bound;
+    struct PagetableChunk {
+        vk::DeviceMemory memory;
+        vk::Buffer buffer; ///< plain buffer over `memory`, for the zeroing fill
+        u64 used;
+        u64 zeroed_tick;   ///< submission whose completion leaves the chunk zeroed
+    };
+    std::vector<PagetableChunk> pagetable_chunks;
+    u64 pagetable_bound_bytes = 0;
+    /// Allocates a chunk and records its zeroing; false when there is no memory.
+    bool PreparePagetableChunk();
+    /// Binds the page table pages of [first_block, end_block); false when out of memory.
+    bool EnsurePagetableResident(u64 first_block, u64 end_block);
 };
 
 } // namespace VideoCore

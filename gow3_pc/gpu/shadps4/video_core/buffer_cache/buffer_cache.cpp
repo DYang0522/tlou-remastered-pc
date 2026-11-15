@@ -53,6 +53,8 @@ extern "C" __declspec(dllimport) unsigned short __stdcall RtlCaptureStackBackTra
 
 namespace VideoCore {
 
+void FlushImageReaper(); // texture_cache/image.cpp
+
 // gow3 21 Oct 2026 (GPU worker): GOW3_GPU_PROFILE segments for the cache's own GPU copies
 // (uploads of CPU-written guest memory, readbacks); the interrupted segment continues after
 // them. Nothing is recorded without the profiler.
@@ -453,11 +455,18 @@ private:
             };
             auto [result, memory] = device.allocateMemory(info);
             if (result != vk::Result::eSuccess) {
-                std::printf("GPU: arena memory chunk not allocated (%s); ranges are allocated one "
-                            "by one\n",
-                            vk::to_string(result).c_str());
-                std::scoped_lock lock{mutex};
+                // gow3 15 Nov 2026 (GitHub #174): it stopped for good after one failure, so on
+                // a full card every range then took an allocation of its own. Now it tries again
+                // after 2 s (memory may have been freed meanwhile).
+                if (++chunk_failures <= 8) {
+                    std::printf("GPU: arena memory chunk not allocated (%s); trying again in 2 s, "
+                                "ranges are allocated one by one meanwhile\n",
+                                vk::to_string(result).c_str());
+                }
+                std::unique_lock lock{mutex};
                 failed = true;
+                cv.wait_for(lock, std::chrono::seconds(2), [this] { return stop; });
+                failed = false;
                 continue;
             }
             Gow3Stats::arena_memory_bytes += ChunkSize;
@@ -481,6 +490,7 @@ private:
     std::deque<Chunk> spares;
     Chunk current{};
     u32 misses = 0;
+    u32 chunk_failures = 0;
     bool failed = false;
     bool stop = false;
     std::thread thread;
@@ -646,9 +656,41 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         (blocks_per_arena_page * num_arena_pages) * sizeof(vk::DeviceAddress);
     fault_manager = std::make_unique<FaultManager>(instance, scheduler, *this, block_shift,
                                                    blocks_per_arena_page * num_arena_pages);
-    bda_pagetable_buffer = std::make_unique<Buffer>(
-        instance, 0, bda_pagetable_size, MemoryType::DeviceLocal, "BDA Page Table Buffer");
-    runtime.FillBuffer(bda_pagetable_buffer.get(), 0u, bda_pagetable_size, 0u);
+    // gow3 15 Nov 2026: sparse in the low video memory mode (see sparse_pagetable in
+    // buffer_cache.h; GOW3_SPARSE_PAGETABLE=0: a plain 128 MiB buffer, =1: also outside the
+    // mode). Only where unbound memory reads 0 (residencyNonResidentStrict: NVIDIA, not Intel).
+    {
+        const char* env = std::getenv("GOW3_SPARSE_PAGETABLE");
+        const bool wanted = env ? env[0] == '1' : Vulkan::LowVram::Enabled();
+        sparse_pagetable = wanted && instance.IsResidencyNonResidentStrict();
+        if (wanted && !sparse_pagetable) {
+            std::printf("GPU: BDA page table stays a plain buffer (unbound sparse memory does not "
+                        "read 0 on this driver)\n");
+        }
+    }
+    if (sparse_pagetable) {
+        bda_pagetable_buffer = std::make_unique<Buffer>(
+            instance, 0, bda_pagetable_size, MemoryType::Sparse, "BDA Page Table Buffer (sparse)");
+        const auto table_reqs =
+            device.getBufferMemoryRequirements(bda_pagetable_buffer->Handle());
+        pagetable_page_size = std::max<u64>(table_reqs.alignment, 64_KB);
+        if (!((table_reqs.memoryTypeBits >> arena_memory_type_index) & 1) ||
+            bda_pagetable_size % pagetable_page_size != 0) {
+            sparse_pagetable = false;
+        } else {
+            pagetable_bound.assign(bda_pagetable_size / pagetable_page_size, false);
+            PreparePagetableChunk();   // zeroed by the first submission
+            std::printf("GPU: BDA page table sparse (%llu MiB of address, bound in %llu KiB pages "
+                        "as blocks become resident; GOW3_SPARSE_PAGETABLE=0: plain)\n",
+                        static_cast<unsigned long long>(bda_pagetable_size >> 20),
+                        static_cast<unsigned long long>(pagetable_page_size >> 10));
+        }
+    }
+    if (!sparse_pagetable) {
+        bda_pagetable_buffer = std::make_unique<Buffer>(
+            instance, 0, bda_pagetable_size, MemoryType::DeviceLocal, "BDA Page Table Buffer");
+        runtime.FillBuffer(bda_pagetable_buffer.get(), 0u, bda_pagetable_size, 0u);
+    }
     // Diagnostics: name the arena and guest address of a GPU fault address.
     Vulkan::g_describe_gpu_address = [this](u64 gpu_address) {
         for (const Buffer& arena : arenas) {
@@ -5328,6 +5370,15 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
     EnsureResident(arena, first_block, last_block);
     const u64 uploaded_before = Gow3Stats::buffer_upload_bytes.load(std::memory_order_relaxed);
     SynchronizeMemory(arena, device_addr, size, is_written, is_texel_buffer);
+    // gow3 15 Nov 2026: blocks EnsureResident left unbound (no video memory) dropped the upload
+    // and any GPU write: the guest copy stays the one to use, and is uploaded once they are bound.
+    for (const auto& [start, end] : unbacked_blocks) {
+        const VAddr address = start << block_shift;
+        const u64 bytes = (end - start) << block_shift;
+        memory_tracker->UnmarkRegionAsGpuModified(address, bytes);
+        memory_tracker->MarkRegionAsCpuModified(address, bytes);
+    }
+    unbacked_blocks.clear();
     if (stats) {
         auto& region = Stats().regions[RegionKey(device_addr)];
         ++region.arena_count;
@@ -5530,10 +5581,27 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         bind_ranges.Add({start, end});
     });
 
+    unbacked_blocks.clear();
     if (bind_ranges.Empty()) {
         return;
     }
     Gow3Stats::Timer timer{Gow3Stats::t_resident};
+
+    // gow3 15 Nov 2026: a range left without memory keeps no binding: its pending unbinds stay
+    // (TrimPendingUnbinds below drops them for ranges bound again) - an unbind is added back.
+    const auto leave_unbacked = [&](u64 start, u64 end) {
+        unbacked_blocks.emplace_back(start, end);
+        BindsForArena(arena)->binds.push_back({
+            .resourceOffset = (start << block_shift) - arena->cpu_addr,
+            .size = (end - start) << block_shift,
+        });
+    };
+    if (sparse_pagetable && !EnsurePagetableResident(first_block, last_block + 1)) {
+        for (const auto& range : bind_ranges) {
+            leave_unbacked(range.start, range.end);
+        }
+        return;
+    }
 
     // gow3 20 Oct 2026 (GitHub #95): memory given back by ReclaimArenaMemory is bound again
     // first; new memory only for what it does not cover. Unbinds of these ranges still pending
@@ -5568,34 +5636,30 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
             fresh_blocks += range.end - start;
         }
     }
-    if (fresh_blocks) {
-        const u64 fresh_bytes = fresh_blocks << block_shift;
-        vk::DeviceMemory device_memory{};
-        u8* mapped = nullptr;
-        u64 memory_offset{};
-        if (!residency_pool ||
-            !residency_pool->Take(fresh_bytes, device_memory, mapped, memory_offset)) {
-            const vk::MemoryAllocateInfo alloc_info = {
-                .allocationSize = fresh_bytes,
-                .memoryTypeIndex = arena_memory_type_index,
-            };
-            device_memory = Vulkan::Check(instance.GetDevice().allocateMemory(alloc_info));
-            Gow3Stats::arena_memory_bytes += fresh_bytes;
-            if (arena_host_mapped) {
-                auto [map_result, pointer] =
-                    instance.GetDevice().mapMemory(device_memory, 0, VK_WHOLE_SIZE);
-                if (map_result == vk::Result::eSuccess) {
-                    mapped = static_cast<u8*>(pointer);
-                }
+    // gow3 15 Nov 2026 (GitHub #174, #177): one allocation for all fresh blocks, asserted on.
+    // Now at most ArenaAllocationMax each, and blocks the driver has no memory for stay unbound.
+    u64 unbacked = 0;
+    const u64 max_blocks = ArenaAllocationMax >> block_shift;
+    for (const auto& [start, end] : fresh) {
+        for (u64 at = start; at < end;) {
+            const u64 count = std::min(end - at, max_blocks);
+            vk::DeviceMemory device_memory{};
+            u8* mapped = nullptr;
+            u64 memory_offset{};
+            if (!AllocateArenaMemory(count << block_shift, device_memory, mapped, memory_offset)) {
+                leave_unbacked(at, end);
+                unbacked += end - at;
+                break;
             }
-        }
-        for (const auto& [start, end] : fresh) {
-            pieces.push_back({start, end, device_memory, memory_offset, mapped});
-            memory_offset += (end - start) << block_shift;
+            pieces.push_back({at, at + count, device_memory, memory_offset, mapped});
+            at += count;
         }
     }
-    resident_in_use_blocks += resident_blocks;
+    resident_in_use_blocks += resident_blocks - unbacked;
     Gow3Stats::arena_in_use_bytes = resident_in_use_blocks << block_shift;
+    if (pieces.empty()) {
+        return;
+    }
 
     boost::container::small_vector<vk::BufferCopy, 8> copies;
     const auto staging =
@@ -5631,6 +5695,143 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
 
     staging.Flush();
     runtime.CopyBuffer(staging.buffer, bda_pagetable_buffer.get(), copies);
+}
+
+bool BufferCache::AllocateArenaMemory(u64 bytes, vk::DeviceMemory& memory, u8*& mapped,
+                                      u64& offset) {
+    mapped = nullptr;
+    offset = 0;
+    if (residency_pool && residency_pool->Take(bytes, memory, mapped, offset)) {
+        return true;
+    }
+    const vk::MemoryAllocateInfo alloc_info = {
+        .allocationSize = bytes,
+        .memoryTypeIndex = arena_memory_type_index,
+    };
+    vk::Result result{};
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        auto [allocated, device_memory] = instance.GetDevice().allocateMemory(alloc_info);
+        result = allocated;
+        if (result == vk::Result::eSuccess) {
+            memory = device_memory;
+            Gow3Stats::arena_memory_bytes += bytes;
+            if (arena_host_mapped) {
+                auto [map_result, pointer] = instance.GetDevice().mapMemory(memory, 0, VK_WHOLE_SIZE);
+                if (map_result == vk::Result::eSuccess) {
+                    mapped = static_cast<u8*>(pointer);
+                }
+            }
+            return true;
+        }
+        if (attempt == 0) {
+            // Images the recycler keeps for reuse are the only video memory free to drop here
+            // (the texture cache may be busy on this thread); their destruction is waited for.
+            TrimImageRecycler(true, 0);
+            FlushImageReaper();
+        }
+    }
+    // The texture collector's next pass is urgent, and the next arena reclaim gives back
+    // windows unused for a few seconds; the blocks stay unbound until then (shaders read 0
+    // there, ObtainBuffer uploads them again once bound).
+    Vulkan::LowVram::NoteOverBudget();
+    arena_starved = true;
+    ++arena_failures;
+    if (arena_failures <= 16 || (arena_failures & 255) == 0) {
+        std::printf("GPU: no video memory for %llu KiB of buffer arena (%s): left unbound for now "
+                    "(%llu times so far; %llu MiB of arena in use)\n",
+                    static_cast<unsigned long long>(bytes >> 10), vk::to_string(result).c_str(),
+                    static_cast<unsigned long long>(arena_failures),
+                    static_cast<unsigned long long>((resident_in_use_blocks << block_shift) >> 20));
+        std::fflush(stdout);
+    }
+    return false;
+}
+
+static constexpr u64 PagetableChunkBytes = 2_MB;
+
+bool BufferCache::PreparePagetableChunk() {
+    const auto device = instance.GetDevice();
+    const vk::MemoryAllocateInfo alloc_info = {
+        .allocationSize = PagetableChunkBytes,
+        .memoryTypeIndex = arena_memory_type_index,
+    };
+    auto [result, memory] = device.allocateMemory(alloc_info);
+    if (result != vk::Result::eSuccess) {
+        TrimImageRecycler(true, 0);
+        FlushImageReaper();
+        auto [retried, retried_memory] = device.allocateMemory(alloc_info);
+        result = retried;
+        memory = retried_memory;
+    }
+    if (result != vk::Result::eSuccess) {
+        return false;
+    }
+    const vk::BufferCreateInfo buffer_ci = {
+        .size = PagetableChunkBytes,
+        .usage = vk::BufferUsageFlagBits::eTransferDst,
+        .sharingMode = vk::SharingMode::eExclusive,
+    };
+    auto [buffer_result, buffer] = device.createBuffer(buffer_ci);
+    if (buffer_result != vk::Result::eSuccess ||
+        device.bindBufferMemory(buffer, memory, 0) != vk::Result::eSuccess) {
+        if (buffer_result == vk::Result::eSuccess) {
+            device.destroyBuffer(buffer);
+        }
+        device.freeMemory(memory);
+        return false;
+    }
+    scheduler.EndRendering();
+    scheduler.Record([buffer](vk::CommandBuffer cmdbuf) {
+        cmdbuf.fillBuffer(buffer, 0, VK_WHOLE_SIZE, 0u);
+    });
+    pagetable_chunks.push_back({memory, buffer, 0, scheduler.CurrentTick()});
+    return true;
+}
+
+bool BufferCache::EnsurePagetableResident(u64 first_block, u64 end_block) {
+    const u64 first_page = (first_block * sizeof(vk::DeviceAddress)) / pagetable_page_size;
+    const u64 last_page = (end_block * sizeof(vk::DeviceAddress) - 1) / pagetable_page_size;
+    for (u64 page = first_page; page <= last_page && page < pagetable_bound.size(); ++page) {
+        if (pagetable_bound[page]) {
+            continue;
+        }
+        // The oldest chunk with room (chunks are used in order; the next one is prepared while
+        // the current one still has room, so it is normally zeroed by the time it is needed).
+        auto it = std::ranges::find_if(pagetable_chunks, [&](const PagetableChunk& chunk) {
+            return chunk.used + pagetable_page_size <= PagetableChunkBytes;
+        });
+        if (it == pagetable_chunks.end()) {
+            if (!PreparePagetableChunk()) {
+                Vulkan::LowVram::NoteOverBudget();
+                arena_starved = true;
+                return false;
+            }
+            it = std::prev(pagetable_chunks.end());
+        }
+        if (!scheduler.IsFree(it->zeroed_tick)) {
+            // Rare (the first page, or a burst): the fill must have run before the bind.
+            scheduler.Wait(it->zeroed_tick);
+        }
+        BindsForArena(bda_pagetable_buffer.get())->binds.push_back({
+            .resourceOffset = page * pagetable_page_size,
+            .size = pagetable_page_size,
+            .memory = it->memory,
+            .memoryOffset = it->used,
+        });
+        it->used += pagetable_page_size;
+        pagetable_bound[page] = true;
+        pagetable_bound_bytes += pagetable_page_size;
+        if (pagetable_bound_bytes <= 16 * pagetable_page_size || (pagetable_bound_bytes & (4_MB - 1)) == 0) {
+            std::printf("GPU: BDA page table: %llu KiB bound (page %llu)\n",
+                        static_cast<unsigned long long>(pagetable_bound_bytes >> 10),
+                        static_cast<unsigned long long>(page));
+        }
+        // The next chunk is zeroed ahead once the last one is three quarters used.
+        if (&*it == &pagetable_chunks.back() && it->used >= PagetableChunkBytes / 4 * 3) {
+            PreparePagetableChunk();
+        }
+    }
+    return true;
 }
 
 void BufferCache::TrimPendingUnbinds(const Buffer* arena, u64 first_block, u64 end_block) {
@@ -5780,10 +5981,20 @@ void BufferCache::ReclaimArenaMemory() {
         const int seconds = env && env[0] ? std::atoi(env) : Vulkan::LowVram::Enabled() ? 20 : 60;
         return static_cast<u16>(std::clamp(seconds, 6, 2 * (int(ReclaimEpochRing) - 4)) / 2);
     }();
-    if ((resident_in_use_blocks << block_shift) <= limit) {
+    // gow3 15 Nov 2026 (GitHub #174): an arena allocation failed, or (low video memory mode)
+    // the process is above the driver's budget: windows unused for 4 s go too, until a sixth of
+    // the arenas in use is given back, whatever the limit.
+    bool emergency = std::exchange(arena_starved, false);
+    if (!emergency && Vulkan::LowVram::Enabled() && instance.CanReportMemoryUsage()) {
+        const u64 budget = instance.GetDeviceMemoryBudgetNow();
+        emergency = budget != 0 && instance.GetDeviceMemoryUsage() > budget / 100 * 97;
+    }
+    const u64 in_use = resident_in_use_blocks << block_shift;
+    if (!emergency && in_use <= limit) {
         return;
     }
-    const u64 target = limit / 4 * 3;
+    const u64 target = emergency ? std::min(limit / 4 * 3, in_use - in_use / 6) : limit / 4 * 3;
+    const u16 min_age = emergency ? u16(2) : age_epochs;
 
     // Windows with resident memory, the longest unused first.
     std::vector<std::pair<u16, u64>> candidates;
@@ -5798,7 +6009,7 @@ void BufferCache::ReclaimArenaMemory() {
             previous = w;
             const u16 epoch = window_epoch[w].load(std::memory_order_relaxed);
             const u16 age = static_cast<u16>(reclaim_epoch - epoch);
-            if (epoch && age < age_epochs) {
+            if (epoch && age < min_age) {
                 continue;
             }
             candidates.emplace_back(epoch ? age : u16(0xFFFF), w);
@@ -5844,11 +6055,12 @@ void BufferCache::ReclaimArenaMemory() {
     }
     if (windows || busy) {
         std::printf("GPU: buffer arenas gave back %llu MiB (%u windows unused for %u s or more; %u "
-                    "kept: GPU data or in use); %llu MiB in use, limit %llu MiB\n",
+                    "kept: GPU data or in use); %llu MiB in use, limit %llu MiB%s\n",
                     static_cast<unsigned long long>((released << block_shift) >> 20), windows,
-                    u32(age_epochs) * 2, busy,
+                    u32(min_age) * 2, busy,
                     static_cast<unsigned long long>((resident_in_use_blocks << block_shift) >> 20),
-                    static_cast<unsigned long long>(limit >> 20));
+                    static_cast<unsigned long long>(limit >> 20),
+                    emergency ? " (video memory short)" : "");
         std::fflush(stdout);
     }
 }
