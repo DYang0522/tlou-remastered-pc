@@ -1016,6 +1016,31 @@ CONTROL_TEXT = {
         'Wyłączone: gra nie pomaga celownikowi podążać za wrogami. Działa od następnego uruchomienia gry.',
         'Выкл.: игра не помогает прицелу следовать за врагами. Действует со следующего запуска игры.',
         'オフ: 照準が敵を追うのをゲームが補助しません。次回のゲーム起動時から有効です。'),
+    'Ícones dos botões': ('Button icons', 'Iconos de los botones', 'Icônes des boutons', 'Tastensymbole',
+                          'Icone dei pulsanti', 'Ikony przycisków', 'Значки кнопок', 'ボタンアイコン'),
+    'Automático': ('Automatic', 'Automático', 'Automatique', 'Automatisch', 'Automatico', 'Automatycznie',
+                   'Автоматически', '自動'),
+    'Do controle conectado': ('Connected controller', 'Del mando conectado', 'De la manette connectée',
+                              'Vom verbundenen Controller', 'Del controller collegato', 'Podłączonego pada',
+                              'Подключённого геймпада', '接続中のコントローラー'),
+    'Automático troca entre teclado e controle conforme o que você usa. "Do controle conectado" segue o tipo '
+    'do controle (letras da Nintendo, por exemplo). Vale na próxima vez que o jogo abrir.': (
+        'Automatic switches between keyboard and controller as you play. "Connected controller" follows the '
+        "controller's type (Nintendo letters, for example). Applies the next time the game starts.",
+        'Automático cambia entre teclado y mando según lo que uses. "Del mando conectado" sigue el tipo de mando '
+        '(letras de Nintendo, por ejemplo). Se aplica la próxima vez que se abra el juego.',
+        'Automatique passe du clavier à la manette selon ce que vous utilisez. « De la manette connectée » suit '
+        'le type de manette (lettres Nintendo, par exemple). S’applique au prochain lancement du jeu.',
+        'Automatisch wechselt je nach Eingabe zwischen Tastatur und Controller. „Vom verbundenen Controller“ '
+        'folgt dessen Typ (z. B. Nintendo-Buchstaben). Gilt ab dem nächsten Spielstart.',
+        'Automatico passa da tastiera a controller in base a ciò che usi. "Del controller collegato" segue il '
+        'tipo di controller (lettere Nintendo, per esempio). Vale dal prossimo avvio del gioco.',
+        'Automatycznie przełącza między klawiaturą a padem zależnie od tego, czego używasz. „Podłączonego pada” '
+        'zależy od typu pada (np. litery Nintendo). Działa od następnego uruchomienia gry.',
+        'Автоматически переключается между клавиатурой и геймпадом по тому, что вы используете. «Подключённого '
+        'геймпада» следует его типу (например, буквы Nintendo). Применяется при следующем запуске игры.',
+        '自動は使っている入力に合わせてキーボードとコントローラーを切り替えます。「接続中のコントローラー」は'
+        'コントローラーの種類に従います (例: Nintendo の文字)。次回のゲーム起動時から有効です。'),
 }
 
 # The art is the player's own dump's (sce_sys), read at run time: no game file in the repository.
@@ -2586,7 +2611,8 @@ class Launcher(tk.Tk):
             return
         self.controls_window = window = tk.Toplevel(self, bg=BG)
         window.title(self.t("controls"))
-        window.geometry(f"780x720+{self.winfo_rootx() + 40}+{self.winfo_rooty() + 20}")
+        height = min(800, self.winfo_screenheight() - 80)   # the Controller tab's cards fit at 800
+        window.geometry(f"780x{height}+{self.winfo_rootx() + 40}+{max(0, min(self.winfo_rooty() + 20, self.winfo_screenheight() - height - 60))}")
         tabs = ttk.Notebook(window)
         tabs.pack(fill="both", expand=True, padx=14, pady=14)
         # Aim assist (aim_assist in tlou.ini; tools/probe_tlou.py patches the game's aim settings
@@ -2654,6 +2680,31 @@ class Launcher(tk.Tk):
                                                 "Vale na próxima vez que o jogo abrir."),
                  bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=560, justify="left").pack(anchor="w", padx=14,
                                                                                               pady=(0, 10))
+
+        # Button icons (prompts in tlou.ini, gow3_settings.cpp; the in-game menu has the same choice):
+        # auto follows the device used last, the others are fixed.
+        icons_card = tk.Frame(outer, bg=BG, highlightthickness=1, highlightbackground="#262626")
+        icons_card.pack(fill="x", padx=10, pady=(10, 0))
+        tk.Label(icons_card, text=self.debug_text("Ícones dos botões").upper(), bg=BG, fg=ACCENT,
+                 font=("Segoe UI Semibold", 9)).pack(anchor="w", padx=14, pady=(10, 2))
+        icons_row = tk.Frame(icons_card, bg=BG)
+        icons_row.pack(anchor="w", padx=12)
+        known_icons = ("auto", "keyboard", "playstation", "xbox", "controller")
+        older = {"1": "keyboard", "0": "controller", "gamepad": "controller"}   # GOW3_PROMPTS's older values
+        current = read_ini().get("prompts", "auto").strip().lower()
+        current = older.get(current, current)
+        icons = tk.StringVar(value=current if current in known_icons else "auto")
+        for value, text in (("auto", "Automático"), ("keyboard", "Teclado e mouse"), ("playstation", "PlayStation"),
+                            ("xbox", "Xbox"), ("controller", "Do controle conectado")):
+            tk.Radiobutton(icons_row, text=self.debug_text(text), variable=icons, value=value,
+                           command=lambda: write_ini({"prompts": icons.get()}), bg=BG, fg=TEXT, selectcolor=PANEL,
+                           activebackground=BG, activeforeground=TEXT, font=("Segoe UI", 10), bd=0,
+                           highlightthickness=0, takefocus=0).pack(side="left", padx=(0, 12))
+        tk.Label(icons_card, text=self.debug_text(
+                     'Automático troca entre teclado e controle conforme o que você usa. "Do controle conectado" segue o '
+                     'tipo do controle (letras da Nintendo, por exemplo). Vale na próxima vez que o jogo abrir.'),
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=560, justify="left").pack(anchor="w", padx=14,
+                                                                                              pady=(2, 10))
 
         def shown():
             return outer.winfo_exists() and tabs.select() == str(outer)
@@ -2777,6 +2828,8 @@ class Launcher(tk.Tk):
             save()
             self.aim_assist.set(True)
             self.save_aim_assist()
+            icons.set("auto")
+            write_ini({"prompts": "auto"})
 
         self.reset_link(outer, reset)
         window.pad_view, window.pad_state = view, state   # (tests)
