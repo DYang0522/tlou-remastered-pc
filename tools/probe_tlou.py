@@ -461,9 +461,21 @@ def main():
     user = ROOT / "analysis/tlou-user"
     user.mkdir(parents=True, exist_ok=True)
     # Diagnostic switches (tlou_pad.py) last for one run: a new run starts with the defaults.
+    # A file that cannot be removed (Windows answered "access denied" for probe-pad.txt left by a
+    # replay test) must not stop the game: it is emptied instead, which turns the switch off for
+    # the text files, and the run goes on with a warning.
     for name in ("disabled-optimizations.txt", "skip.txt", "readback.trigger", "capture.trigger",
                  "probe-pad.txt"):
-        (user / name).unlink(missing_ok=True)
+        try:
+            (user / name).unlink(missing_ok=True)
+        except OSError as error:
+            try:
+                (user / name).write_bytes(b"")
+                print(f"WARNING: could not remove {user / name} ({error}); emptied it instead",
+                      flush=True)
+            except OSError:
+                print(f"WARNING: could not remove or empty {user / name} ({error}); "
+                      "the diagnostic switch it holds stays on for this run", flush=True)
     # The diagnostic files and the shader cache stay in analysis/tlou-user either way.
     saves = args.saves.resolve() if args.saves else user
     saves.mkdir(parents=True, exist_ok=True)
