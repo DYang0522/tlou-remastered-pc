@@ -2313,6 +2313,15 @@ bool SkippedShader(u64 first, u64 second = 0, u64 index_base = 0) {
     static std::vector<u64> meshes;
     static std::filesystem::file_time_type stamp{};
     static std::chrono::steady_clock::time_point checked{};
+    // gow3 15 Nov 2026: the launcher always sets GOW3_SKIP_FILE, and this ran on every draw and
+    // dispatch: a mutex and a clock read each (~2% of the draw recording thread in a city
+    // scene, ~3,000 calls a frame) for a list that is nearly always empty. Each thread looks at
+    // the file every 1,024 calls (still at most every 500 ms); an empty list returns at once.
+    static std::atomic<bool> listed{false};
+    thread_local u32 calls = 0;
+    if ((calls++ & 1023) != 0 && !listed.load(std::memory_order_relaxed)) {
+        return false;
+    }
     std::scoped_lock lock{mutex};
     const auto now = std::chrono::steady_clock::now();
     if (now - checked > std::chrono::milliseconds(500)) {
@@ -2335,6 +2344,7 @@ bool SkippedShader(u64 first, u64 second = 0, u64 index_base = 0) {
             }
             std::printf("Skip list: %zu shaders, %zu meshes\n", hashes.size(), meshes.size());
         }
+        listed.store(!hashes.empty() || !meshes.empty(), std::memory_order_relaxed);
     }
     const bool shader_listed = std::ranges::any_of(
         hashes, [&](u64 h) { return h == first || (second && h == second); });

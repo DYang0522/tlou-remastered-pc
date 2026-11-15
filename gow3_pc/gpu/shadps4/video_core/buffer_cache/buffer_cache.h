@@ -830,8 +830,14 @@ private:
         bool watching = false; ///< `watched` is read-protected (from the first poll after submission)
         bool yield_to_cpu = false; ///< see DownloadRangesAsync
         bool open = false; ///< gow3: never protected (fence-gated results), in open_readback_ranges
-        /// gow3: run once the data is in guest memory (fence labels of ray-cast batches).
-        std::vector<std::function<void()>> on_landed;
+        /// gow3: run once the data is in guest memory (fence labels of ray-cast batches). A
+        /// signal with a label releases it (deferred_values) just before running.
+        struct LandedSignal {
+            std::function<void()> fn;
+            VAddr label = 0;
+            u32 label_bytes = 0;
+        };
+        std::vector<LandedSignal> on_landed;
         /// gow3 tests (GOW3_TEST_READBACK_LAG): when it was queued.
         std::chrono::steady_clock::time_point queued = std::chrono::steady_clock::now();
         /// gow3 18 Oct 2026 (readback guard): the guest bytes of each piece when it was queued
@@ -929,13 +935,14 @@ public:
     [[nodiscard]] u32 ReadWaitLabel(VAddr address) const;
     [[nodiscard]] bool IsLabelDeferred(VAddr label) const {
         std::scoped_lock lock{deferred_mutex};
-        return deferred_labels.contains(label);
+        const auto it = deferred_values.find(label);
+        return it != deferred_values.end() && it->second.count != 0;
     }
     [[nodiscard]] bool HasDeferredSignals() const {
         return deferred_signals.load(std::memory_order_acquire) != 0;
     }
     /// gow3 25 Oct 2026: whether a deferred fence may cover the dword at `address` (a counting
-    /// filter kept with deferred_labels, read without draining the draw recording thread; false
+    /// filter kept with deferred_values, read without draining the draw recording thread; false
     /// means none does).
     [[nodiscard]] bool MayBeLabelDeferred(VAddr address) const {
         return deferred_label_filter[LabelSlot(address)].load(std::memory_order_acquire) != 0;
@@ -951,16 +958,21 @@ private:
         return static_cast<size_t>(((address >> 2) * 0x9E3779B97F4A7C15ull) >> 56);
     }
     std::array<std::atomic<u32>, 256> deferred_label_filter{};
-    /// gow3 25 Oct 2026: guards deferred_labels and deferred_values (looked up by the GPU command
-    /// thread's waits without draining the draw recording thread).
+    /// gow3 25 Oct 2026: guards deferred_values (looked up by the GPU command thread's waits
+    /// without draining the draw recording thread).
     mutable std::mutex deferred_mutex;
-    std::unordered_multiset<VAddr> deferred_labels;
+    /// gow3 15 Nov 2026: the fences deferred per label are counted here (they were a multiset
+    /// next to this map: a node allocated and freed per fence, ~2.6% of the draw recording
+    /// thread with ~1,800 compute releases a frame). An entry is erased when its count reaches
+    /// 0 (readers still skip a zero count).
     struct DeferredValue {
-        u64 value;
-        u32 bytes;
-        u64 tick;
+        u64 value = 0;
+        u32 bytes = 0;
+        u64 tick = 0;
+        u32 count = 0; ///< fences deferred on this label and not landed yet
     };
     std::unordered_map<VAddr, DeferredValue> deferred_values; ///< newest value per label
+    void ReleaseDeferredLabel(VAddr label, u32 label_bytes);
     /// Atomic: with multithreaded rendering the draw recording thread defers fences while the GPU
     /// command thread checks for them (it drains that thread before touching the rest).
     std::atomic<u32> deferred_signals{0};

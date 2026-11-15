@@ -999,14 +999,19 @@ void RunEventWriteEop(Vulkan::Rasterizer& rasterizer, const u8* data) {
         // complete in order (the guest frees command buffers of frame N once it sees frame N+1
         // done; a later fence written first let the game overwrite a command buffer the GPU
         // thread was still reading).
-        std::function<void()> deferred_signal = signal;
+        // gow3 15 Nov 2026: built once and moved in (a copy, then a replacement, then a copy into
+        // the call were three allocations and frees per fence).
+        std::function<void()> deferred_signal;
         if (wait_readbacks && !results_pending) {
             deferred_signal = [signal, order, &scheduler] {
                 scheduler.WaitGuestOrder(order);
                 signal();
             };
+        } else if (wait_readbacks) {
+            deferred_signal = signal;
         }
-        if (wait_readbacks && cache.DeferUntilLastReadback(deferred_signal, label, value, bytes)) {
+        if (wait_readbacks &&
+            cache.DeferUntilLastReadback(std::move(deferred_signal), label, value, bytes)) {
             // The GPU starts on the ray casts now rather than when the frame's command buffer is
             // submitted at its end: the fence (and the guest waiting for it) follows sooner.
             // gow3 21 Oct 2026 (GPU worker): GOW3_RAYCAST_FLUSH=lazy leaves them in the command
@@ -1078,12 +1083,15 @@ void RunComputeReleaseMem(Vulkan::Rasterizer& rasterizer, const u8* data) {
         // about a frame later: waiting here for the recorder's copies was ~25,000 waits a second,
         // ~14% of the draw recording thread, once deferred fences were nearly always pending.
         auto& scheduler = rasterizer.GetRuntime().GetScheduler();
-        std::function<void()> deferred_signal = signal;
+        // gow3 15 Nov 2026: built once and moved in below (see RunEventWriteEop).
+        std::function<void()> deferred_signal;
         if (!results_pending) {
             deferred_signal = [signal, order = scheduler.GuestOrderNow(), &scheduler] {
                 scheduler.WaitGuestOrder(order);
                 signal();
             };
+        } else {
+            deferred_signal = signal;
         }
         rasterizer.ProcessDownloadImages();
         const bool qword = sel != DataSelect::Data32Low;
@@ -1091,7 +1099,7 @@ void RunComputeReleaseMem(Vulkan::Rasterizer& rasterizer, const u8* data) {
         if (label && cache.MayBeGpuWritten(label & ~VAddr{4095}, 4096)) {
             rasterizer.NoteLabelWrite(label, qword ? 8 : 4);
         }
-        if (cache.DeferUntilLastReadback(deferred_signal, label,
+        if (cache.DeferUntilLastReadback(std::move(deferred_signal), label,
                                          qword ? release.packet.DataQWord() : release.packet.DataDWord(),
                                          qword ? 8 : 4)) {
             if (results_pending) {

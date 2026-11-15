@@ -4443,9 +4443,12 @@ void BufferCache::CompleteReadbacks(bool wait, u64 wait_until) {
         RecycleSnapshot(readback.before);
         IndexReadbackWindows(readback, false);
         pending_readbacks.pop_front();
-        for (auto& fn : landed) {
+        for (auto& signal : landed) {
             --deferred_signals;
-            fn();
+            if (signal.label) {
+                ReleaseDeferredLabel(signal.label, signal.label_bytes);
+            }
+            signal.fn();
         }
     }
 }
@@ -4456,7 +4459,9 @@ bool BufferCache::DeferUntilLastReadback(std::function<void()> fn, VAddr label, 
     }
     ++deferred_signals;
     ++g_deferred_fences;
-    {
+    // The first labels are printed once each; past that, no lock (this runs per compute fence).
+    static std::atomic<bool> labels_printed{false};
+    if (!labels_printed.load(std::memory_order_relaxed)) {
         static std::mutex labels_mutex;
         static std::unordered_map<VAddr, u32> seen;
         std::scoped_lock lock{labels_mutex};
@@ -4464,6 +4469,9 @@ bool BufferCache::DeferUntilLastReadback(std::function<void()> fn, VAddr label, 
             std::printf("Deferred fence: label %#llx (tick %llu)\n", static_cast<unsigned long long>(label),
                         static_cast<unsigned long long>(pending_readbacks.back().tick));
             std::fflush(stdout);
+        }
+        if (seen.size() >= 12) {
+            labels_printed.store(true, std::memory_order_relaxed);
         }
     }
     // (A wrapper is a heap allocation per fence: only with the fault statistics.)
@@ -4485,36 +4493,47 @@ bool BufferCache::DeferUntilLastReadback(std::function<void()> fn, VAddr label, 
         {
             // Read by the GPU command thread's waits (DeferredFenceTick) while this runs.
             std::scoped_lock lock{deferred_mutex};
-            deferred_labels.insert(label);
-            deferred_values[label] = {value, label_bytes, pending_readbacks.back().tick};
+            auto& deferred = deferred_values[label];
+            deferred.value = value;
+            deferred.bytes = label_bytes;
+            deferred.tick = pending_readbacks.back().tick;
+            ++deferred.count;
         }
         for (VAddr dword = label; dword < label + label_bytes; dword += 4) {
             deferred_label_filter[LabelSlot(dword)].fetch_add(1, std::memory_order_acq_rel);
         }
-        pending_readbacks.back().on_landed.emplace_back([this, label, label_bytes, fn = std::move(fn)] {
-            {
-                std::scoped_lock lock{deferred_mutex};
-                if (const auto it = deferred_labels.find(label); it != deferred_labels.end()) {
-                    deferred_labels.erase(it);
-                }
-                if (!deferred_labels.contains(label)) {
-                    deferred_values.erase(label);
-                }
-            }
-            for (VAddr dword = label; dword < label + label_bytes; dword += 4) {
-                deferred_label_filter[LabelSlot(dword)].fetch_sub(1, std::memory_order_acq_rel);
-            }
-            fn();
-        });
+        // The label is released by CompleteReadbacks just before fn runs (no wrapper: a
+        // std::function around this one was another allocation per fence).
+        pending_readbacks.back().on_landed.push_back({std::move(fn), label, label_bytes});
     } else {
-        pending_readbacks.back().on_landed.emplace_back(std::move(fn));
+        pending_readbacks.back().on_landed.push_back({std::move(fn)});
     }
     return true;
+}
+
+void BufferCache::ReleaseDeferredLabel(VAddr label, u32 label_bytes) {
+    {
+        std::scoped_lock lock{deferred_mutex};
+        // Dropped once no fence waits on it: the game uses hundreds of labels (a sweep for
+        // zero counts past 256 entries ran on every release, ~10% of the thread).
+        if (const auto it = deferred_values.find(label);
+            it != deferred_values.end() && (it->second.count <= 1)) {
+            deferred_values.erase(it);
+        } else if (it != deferred_values.end()) {
+            --it->second.count;
+        }
+    }
+    for (VAddr dword = label; dword < label + label_bytes; dword += 4) {
+        deferred_label_filter[LabelSlot(dword)].fetch_sub(1, std::memory_order_acq_rel);
+    }
 }
 
 bool BufferCache::DeferredFenceTick(VAddr address, u64& tick, u32* value) const {
     std::scoped_lock lock{deferred_mutex};
     for (const auto& [label, deferred] : deferred_values) {
+        if (deferred.count == 0) {
+            continue;
+        }
         if (address >= label && address + sizeof(u32) <= label + deferred.bytes) {
             tick = deferred.tick;
             if (value) {
