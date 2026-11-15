@@ -912,6 +912,30 @@ bool MovieActive(std::chrono::steady_clock::time_point now) {
 }
 } // namespace
 
+// gow3 15 Nov 2026 (SpartanPort 790dc95, from TatsunaKyo/bloodborne_pc 6eabc89): the next flip
+// slot after a flip. Before, max(slot + period, now - period) let a frame that came after a
+// stall be followed by the next one almost at once (two frames back to back: a visible hitch
+// right after the stall). A flip later than ordinary timer jitter (1/8 period, at most 1 ms)
+// now starts a fresh interval from its own time; within the jitter the phase is kept, so the
+// limit is not lowered by the timer's lateness. `submitted` is taken after the request was
+// dequeued. GOW3_FLIP_REBASE=0: the old rule.
+static std::chrono::steady_clock::time_point NextFlipDeadline(
+    std::chrono::steady_clock::time_point previous, std::chrono::steady_clock::time_point submitted,
+    std::chrono::nanoseconds period) {
+    static const bool rebase = [] {
+        const char* env = std::getenv("GOW3_FLIP_REBASE");
+        return !(env && env[0] == '0');
+    }();
+    if (!rebase) {
+        return std::max(previous + period, submitted - period);
+    }
+    if (period.count() <= 0) {
+        return submitted;
+    }
+    const auto tolerance = std::min(period / 8, std::chrono::nanoseconds{1'000'000});
+    return (submitted - previous > tolerance ? submitted : previous) + period;
+}
+
 void VideoOutDriver::PresentThread(std::stop_token token) {
     const std::chrono::nanoseconds base_period(1000000000 / EmulatorSettings.GetVblankFrequency());
     std::chrono::nanoseconds vblank_period = base_period;
@@ -1118,7 +1142,8 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         if (flip_slot && vblank_status.count % (main_port.flip_rate + 1) == 0) {
             const auto request = receive_request();
             if (request && frame_limit) {
-                next_flip = std::max(next_flip + frame_period, now - frame_period);
+                next_flip = NextFlipDeadline(next_flip, std::chrono::steady_clock::now(),
+                                             frame_period);
             }
             if (!request) {
                 if (timer.GetTotalWait().count() < 0) { // Dont draw too fast
@@ -1174,10 +1199,10 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     }
                     hr_wait(next_flip, false);
                 }
-                const auto now = std::chrono::steady_clock::now();
                 const auto request = receive_request();
                 if (request) {
-                    next_flip = std::max(next_flip + frame_period, now - frame_period);
+                    next_flip = NextFlipDeadline(next_flip, std::chrono::steady_clock::now(),
+                                                 frame_period);
                     Flip(request);
                     FRAME_END;
                 }
@@ -1201,10 +1226,10 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 }
                 std::this_thread::sleep_until(next_flip);
             }
-            const auto now = std::chrono::steady_clock::now();
             const auto request = receive_request();
             if (request) {
-                next_flip = std::max(next_flip + frame_period, now - frame_period);
+                next_flip = NextFlipDeadline(next_flip, std::chrono::steady_clock::now(),
+                                             frame_period);
                 Flip(request);
                 FRAME_END;
             }

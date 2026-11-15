@@ -548,7 +548,7 @@ void Runtime::CopyImage(VideoCore::Image* src, VideoCore::Image* dst) {
 }
 
 /// gow3 14 Nov 2026: the bytes CopyImageWithBuffer stages for these images (the same levels and
-/// sizes, at most 128 MiB), so the low video memory mode asks for a buffer of that size.
+/// sizes, at most 128 MiB), so the copy asks for a buffer of that size.
 static u64 CopyWithBufferBytes(const VideoCore::Image* src, const VideoCore::Image* dst) {
     const u32 num_mips = std::min(src->info.resources.levels, dst->info.resources.levels);
     const u32 num_layers = std::min(src->info.resources.layers, dst->info.resources.layers);
@@ -735,10 +735,10 @@ void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst) {
             CopyImage(src, dst);
         } else {
             // Perform depth from/to color copy using the intermediate copy buffer.
-            // gow3 14 Nov 2026: in the low video memory mode a buffer of the copy's size instead
-            // of 128 MiB (most of these copies are one depth target: a few MiB).
-            static constexpr size_t COPY_BUFFER_SIZE = 128_MB;
-            const u64 request = LowVram::Enabled() ? CopyWithBufferBytes(src, dst) : COPY_BUFFER_SIZE;
+            // gow3 15 Nov 2026 (SpartanPort d698ec9): a buffer of the copy's size instead of
+            // 128 MiB, in every mode. Most of these copies are one depth target (a few MiB); a
+            // 128 MiB request each time wrapped the staging ring and waited on its fences.
+            const u64 request = CopyWithBufferBytes(src, dst);
             const auto copy_ref =
                 staging_pool.Request(request, VideoCore::MemoryType::DeviceLocal, 256);
             CopyImageWithBuffer(src, dst, copy_ref.buffer, copy_ref.offset);

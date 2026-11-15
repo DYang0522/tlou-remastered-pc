@@ -15,7 +15,7 @@ static int writer_done, shared_value;
 static void nap(void) { struct timespec t = {0, 1000000}; nanosleep(&t, NULL); }
 static unsigned waiting_writers(void) {
     pthread_mutex_lock(&lock.mutex);
-    unsigned n = lock.writers_waiting;
+    unsigned n = lock.waiters; /* only the queued writer waits here */
     pthread_mutex_unlock(&lock.mutex);
     return n;
 }
@@ -81,7 +81,7 @@ int main(void) {
     assert(!pthread_join(w1, NULL) && !pthread_join(w2, NULL));
     assert(rp_try_write_lock(&lock) == 0);
     rp_write_unlock(&lock);
-    assert(!lock.readers && !lock.writer && !lock.writers_waiting);
+    assert(!lock.state && !lock.waiters);
     puts("reader-preferring rwlock tests passed");
     return 0;
 }
