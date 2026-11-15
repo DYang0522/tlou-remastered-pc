@@ -6697,7 +6697,7 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
     }
 
     if (stage.pgm_hash == Gow3Prompts::PromptShaderHash && Gow3Prompts::FloatingPromptsActive() &&
-        draw_inputs.is_indexed && draw_inputs.pipeline && stage.images.size() >= 2 &&
+        draw_inputs.pending && draw_inputs.is_indexed && draw_inputs.pipeline && stage.images.size() >= 2 &&
         image_infos.size() >= first_image_idx + 2) {
         const bool sharps = prepared && prepared->image_sharps && prepared->num_images >= 2;
         const AmdGpu::Image s0 = sharps ? prepared->image_sharps[0] : stage.images[0].GetSharp(stage);

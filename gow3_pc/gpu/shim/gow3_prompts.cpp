@@ -1296,15 +1296,8 @@ std::shared_ptr<const Texels> Replacement(VAddr address, u32 guest_size, u32 mip
     if (!atlas && !picture && !tlou_atlas) {
         return nullptr;
     }
-    if (tlou_atlas && SetOf(device.load(std::memory_order_relaxed)) < 0 && !log) {
-        // PlayStation icons: no hash; a switch to other icons uploads it again.
-        auto& state = GetState();
-        std::scoped_lock lock{state.mutex};
-        if (std::find(state.seen.begin(), state.seen.end(), std::pair{address, guest_size}) == state.seen.end()) {
-            state.seen.emplace_back(address, guest_size);
-        }
-        return nullptr;
-    }
+    // Every 256x512 RGBA8 upload is hashed, PlayStation icons too: only the atlas (by its hash) is
+    // remembered for a later switch to other icons, not every texture of that size.
     const u8* guest = reinterpret_cast<const u8*>(address);
     const u64 hash = XXH3_64bits(guest, mip0_size);
     const KnownTexture* known = nullptr;
@@ -1477,8 +1470,17 @@ public:
     void Clear() {
         entries.clear();
     }
-    bool Empty() const {
-        return entries.empty();
+    // Whether a quad the rules did not match could still resolve to a remembered prompt (its texture
+    // address or its place): otherwise the caller skips reading and hashing its textures.
+    bool MayMatch(const PromptQuad& q, VAddr address, s64 now_ms) const {
+        const float x = q.cx / q.H, y = q.cy / q.H, size = std::max(q.w, q.h) / q.H;
+        for (const Entry& e : entries) {
+            const bool near_place = now_ms - e.seen_ms < StickyMs && std::hypot(x - e.x, y - e.y) < 0.05f;
+            if (size < 2.5f * e.size && (e.address == address || (near_place && size > 0.4f * e.size))) {
+                return true;
+            }
+        }
+        return false;
     }
 
 private:
@@ -1753,7 +1755,13 @@ static bool ReadPromptQuad(const PromptGeometry& geom, Core::MemoryManager* memo
 }
 
 bool FloatingPromptsActive() {
-    return SetOf(device.load(std::memory_order_relaxed)) >= 0;
+    // GOW3_PROMPTS_WORLD=0: world prompts and menu tabs keep the game's icons (the guessed button
+    // could be wrong); the symbol atlas in the text is still redrawn.
+    static const bool world = [] {
+        const char* env = std::getenv("GOW3_PROMPTS_WORLD");
+        return !(env && env[0] == '0');
+    }();
+    return world && SetOf(device.load(std::memory_order_relaxed)) >= 0;
 }
 
 int IdentifyFloatingPrompt(const AmdGpu::Image& s0, const AmdGpu::Image& s1, Core::MemoryManager* memory,
@@ -1780,7 +1788,7 @@ int IdentifyFloatingPrompt(const AmdGpu::Image& s0, const AmdGpu::Image& s1, Cor
                            std::chrono::steady_clock::now().time_since_epoch()).count();
     const bool close_by = now_ms - last_ms < 200 && std::hypot(q.cx - last_x, q.cy - last_y) < 0.23f * q.H;
     const int rule = ClassifyQuad(q, close_by);
-    if (rule < 0 && recognised.Empty()) {
+    if (rule < 0 && !recognised.MayMatch(q, s0.Address(), now_ms)) {
         return -1;
     }
     u8 texels[2][8192]; // the colour and the alpha texture: the button's symbol is in the alpha
