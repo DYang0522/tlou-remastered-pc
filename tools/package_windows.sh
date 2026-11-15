@@ -39,6 +39,13 @@ ldd gow3_pc/out/gow3-probe.exe | awk '/clang64/ {print $3}' | sort -u | while re
 done
 cp -r gow3_pc/out/pydeps/iced_x86 gow3_pc/out/pydeps/iced_x86-*.dist-info "$stage/gow3_pc/out/pydeps/"
 rm -rf -- "$stage/gow3_pc/out/pydeps/iced_x86/__pycache__"   # (paths of this machine)
+# iced_x86's modules ship as bytecode only. Its generated Code.py (only constants and docstrings)
+# is flagged as JS/TrojanDropper.ModiLoader by ESET, Google and Ikarus and as Script.Trojan.Agent
+# by GData on VirusTotal, and with it the whole package (#88, #112, #148). The Python that ships is
+# a copy of this one, so the bytecode matches it. The type stubs are not needed to run.
+"$python_home/python.exe" -I -m compileall -q -b -o 2 "$(cygpath -w "$stage/gow3_pc/out/pydeps/iced_x86")"
+find "$stage/gow3_pc/out/pydeps/iced_x86" -name '*.py' -delete
+rm -f -- "$stage/gow3_pc/out/pydeps/iced_x86/_iced_x86_py.pyi"
 cp gow3_pc/scripts/*.py "$stage/gow3_pc/scripts/"
 cp tools/probe_tlou.py tools/run_game.py tools/apply_update.py "$stage/tools/"
 cp launcher/tlou_launcher.pyw launcher/updater.py "$stage/launcher/"
