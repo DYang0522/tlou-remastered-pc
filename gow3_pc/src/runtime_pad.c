@@ -20,6 +20,7 @@
 #include "runtime.h"
 #include "gpu/gow3gpu.h"
 #include "runtime_gamesettings.h"
+#include "runtime_menu_exit.h"
 #include "runtime_mouselook.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -652,6 +653,7 @@ static void sample_host(PadData *d) {
     d->timestamp=now_us();
     SDL_Gamepad *g=current_gamepad();
     prompt_activity.keyboard=prompt_activity.gamepad=0;
+    runtime_menu_exit_tick();
     if (gow3gpu_overlay_captures_input()) return; /* settings menu open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
     bool walk_held=false;

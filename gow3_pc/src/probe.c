@@ -9,6 +9,8 @@
 #include "cpu_check.h"
 #include "red_zone.h"
 #include "orb_hook.h"
+#include "menu_exit_hook.h"
+#include "runtime_menu_exit.h"
 #include "cheat_hook.h"
 #include "actor_hook.h"
 #include "damage_hook.h"
@@ -983,6 +985,39 @@ static void install_stat_multipliers(Segment *segments, uint64_t count, uint64_t
     printf("Multipliers: damage %s, green/blue/gold orbs %s\n", damage ? "ready" : "unavailable",
            pickup ? "ready" : "unavailable");
 }
+/* QUIT in the lobby and the pause menu (src/menu_exit_hook.h): the menu data gets the button as it
+ * loads, and the dispatcher tells the runtime when it is pressed. GOW3_MENU_EXIT=0 leaves it out. */
+static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) {
+    const char *env = getenv("GOW3_MENU_EXIT");
+    if (env && env[0] == '0') return;
+    const uint64_t load_at = gow3_signature_find(image, size, &gow3_menu_load_site);
+    const uint64_t click_at = gow3_signature_find(image, size, &gow3_menu_click_site);
+    if (load_at == UINT64_MAX || click_at == UINT64_MAX || !mapped(segments, count, load_at, GOW3_MENU_LOAD_LENGTH) ||
+        !mapped(segments, count, click_at, GOW3_MENU_CLICK_LENGTH)) {
+        puts("Menu: QUIT button unavailable (code not found in this eboot.bin)");
+        return;
+    }
+    enum { CLICK_STUB = 512, ARENA_PAGES = 16 };
+    unsigned char *stubs = allocate_near_image(size);
+    unsigned char *arena = allocate(page_size * ARENA_PAGES);
+    if (!stubs || !arena) {
+        puts("Menu: QUIT button unavailable (no memory in range)");
+        return;
+    }
+    gow3_menu_build_click_stub(stubs + CLICK_STUB, (uintptr_t)runtime_menu_exit_button,
+                               (uintptr_t)(image + click_at + GOW3_MENU_CLICK_LENGTH), image + click_at);
+    gow3_menu_build_load_stub(stubs, (uintptr_t)runtime_menu_exit_data_loaded,
+                              (uintptr_t)(image + load_at + GOW3_MENU_LOAD_LENGTH), image + load_at);
+    protect(stubs, page_size, 5);
+    runtime_menu_exit_set_arena(arena, page_size * ARENA_PAGES);
+    if (!install_jump(click_at, GOW3_MENU_CLICK_LENGTH, stubs + CLICK_STUB) ||
+        !install_jump(load_at, GOW3_MENU_LOAD_LENGTH, stubs)) {
+        puts("Menu: QUIT button unavailable (hook outside relative-jump range)");
+        return;
+    }
+    printf("Menu: QUIT button hooks ready (data loader %#llx, dispatcher %#llx)\n", (unsigned long long)load_at,
+           (unsigned long long)click_at);
+}
 /* G3PATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap
  * function pointers): the patch holds the address at the patches' base, rebased here. */
@@ -1343,6 +1378,7 @@ int main(int argc, char **argv) {
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
     if (gpu_enabled) install_mouse_look(segments, ns, size);
     if (gpu_enabled) install_stick_boost(segments, ns, size);
+    if (gpu_enabled) install_menu_exit(segments, ns, size);
     runtime_gamesettings_set_image(image, size);
     if (gpu_enabled && game_hooks) {
         install_orb_multiplier(segments, ns, size);
