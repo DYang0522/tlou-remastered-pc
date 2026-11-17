@@ -33,6 +33,8 @@ int gow3gpu_text_input_poll(char *out_utf8, uint64_t size);
  * poll: -1 while open, -2 cancelled, else the chosen index. */
 int gow3gpu_choice_begin(const char *title, const char *const *items, const char *const *images, int count, int focus);
 int gow3gpu_choice_poll(void);
+/* Closes the game the way the window's close button does (cache flush, then exit). */
+void gow3gpu_request_exit(void);
 /* Trophies (gow3_trophies.cpp): the running game's list (its trophy pack, a host path; the list
  * number 1-3; 128 earned flags), then each newly earned trophy, shown as a popup. */
 void gow3gpu_trophy_list(const char *pack_path, int list, const uint32_t earned[4]);

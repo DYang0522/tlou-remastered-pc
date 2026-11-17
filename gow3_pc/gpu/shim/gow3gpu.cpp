@@ -680,6 +680,14 @@ extern "C" int gow3gpu_choice_poll(void) {
     return Gow3Overlay::PollChoice();
 }
 
+// The window thread ends the game as it does for the window's close button.
+extern "C" void gow3gpu_request_exit(void) {
+    SDL_Event quit{};
+    quit.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&quit);
+    WakeWindowThread();
+}
+
 extern "C" int gow3gpu_text_input_poll(char* out, uint64_t size) {
     if (!g_window) return 2;
     std::string text;
