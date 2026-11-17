@@ -7,10 +7,16 @@
 #define DATA_MAGIC 0x44433030u
 #define DATA_MIN 0x1000u
 #define DATA_MAX 0x400000u
-#define SLOT_SIZE 0x2000u
+#define REGIONS 32
 
+/* The new lists stay where they are written: a region is only written again for menu data loaded
+ * at the same address (the file there was replaced, so nothing points at the old copy any more).
+ * Other loads take new space; once the arena is full the button is left out of them. */
+typedef struct { uintptr_t base; size_t offset, length; } Region;
 static unsigned char *arena;
-static size_t arena_size, arena_next;
+static size_t arena_size, arena_end;
+static Region regions[REGIONS];
+static unsigned region_count, full_reported;
 static atomic_flag arena_lock = ATOMIC_FLAG_INIT;
 static atomic_int asking, leaving;
 
@@ -19,18 +25,38 @@ void runtime_menu_exit_set_arena(unsigned char *memory, size_t size) {
     arena_size = size;
 }
 
+static Region *region_of(uintptr_t base) {
+    for (unsigned i = 0; i < region_count; ++i)
+        if (regions[i].base == base) return &regions[i];
+    return NULL;
+}
+
 ABI void runtime_menu_exit_data_loaded(unsigned char *data) {
     if (!data || !arena || gow3_menu_u32(data) != DATA_MAGIC) return;
     const uint64_t size = gow3_menu_u32(data + 8);
     if (size < DATA_MIN || size > DATA_MAX) return;
-    const size_t slots = arena_size / SLOT_SIZE;
-    if (!slots) return;
     while (atomic_flag_test_and_set(&arena_lock)) {}
-    size_t used = 0;
-    const Gow3MenuPatched done = gow3_menu_patch(data, size, arena + arena_next % slots * SLOT_SIZE, SLOT_SIZE, &used);
-    if (done.lobby || done.pause) ++arena_next;
+    Gow3MenuPatched done = {0, 0};
+    int full = 0;
+    Region *region = region_of((uintptr_t)data);
+    if (region) {
+        size_t used = 0;
+        done = gow3_menu_patch(data, size, arena + region->offset, region->length, &used);
+    }
+    if (!done.lobby && !done.pause) {
+        size_t used = arena_end;
+        done = gow3_menu_patch(data, size, arena, arena_size, &used);
+        if (done.lobby || done.pause) {
+            if (!region && region_count < REGIONS) region = &regions[region_count++];
+            if (region) *region = (Region){(uintptr_t)data, arena_end, used - arena_end};
+            arena_end = used;
+        } else if (arena_end + GOW3_MENU_NAME_SIZE + 16 + 2 * GOW3_MENU_ITEM_SIZE > arena_size && !full_reported) {
+            full = full_reported = 1;
+        }
+    }
     atomic_flag_clear(&arena_lock);
     if (done.lobby || done.pause) printf("Menu: QUIT button added (lobby lists %u, pause lists %u)\n", done.lobby, done.pause);
+    if (full) puts("Menu: QUIT button memory full, later menu loads go without it");
 }
 
 static void leave(void) {

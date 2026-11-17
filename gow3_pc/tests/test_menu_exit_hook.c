@@ -65,5 +65,20 @@ int main(void) {
     used = sizeof(arena) - 16;
     done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used);
     assert(!done.pause && !done.lobby);
+
+    /* Stubs: fit the 512 bytes probe.c gives each, step over the red zone, keep rsp aligned. */
+    static unsigned char stub[1024];
+    static const unsigned char load_original[GOW3_MENU_LOAD_LENGTH] = {0x4c, 0x8b, 0x65, 0xb8, 0x49, 0x63, 0x48, 0x14};
+    static const unsigned char click_original[GOW3_MENU_CLICK_LENGTH] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
+    unsigned n = gow3_menu_build_load_stub(stub, 0x1111, 0x2222, load_original);
+    assert(n <= 512);
+    assert(!memcmp(stub, "\x48\x8d\x64\x24\x80\x9c", 6));
+    assert(!memcmp(stub + n - 31, "\x9d\x48\x8d\xa4\x24\x80\x00\x00\x00", 9));
+    assert(!memcmp(stub + n - 22, load_original, GOW3_MENU_LOAD_LENGTH));
+    n = gow3_menu_build_click_stub(stub, 0x1111, 0x2222, click_original);
+    assert(n <= 512);
+    /* entry rsp = 8 mod 16; six pushes and 0x108 leave the call 16-byte aligned. */
+    assert(!memcmp(stub + 8, "\x48\x81\xec\x08\x01\x00\x00", 7));
+    assert(!memcmp(stub + n - 20, click_original, GOW3_MENU_CLICK_LENGTH));
     return 0;
 }

@@ -89,9 +89,10 @@ static inline Gow3MenuPatched gow3_menu_patch(unsigned char *data, uint64_t size
     return done;
 }
 
-static inline unsigned gow3_menu_emit_ymm(unsigned char *out, unsigned load) {
+/* vmovups [rsp+n*32], ymmN (or the load back) for ymm0..ymm<count-1>. */
+static inline unsigned gow3_menu_emit_ymm(unsigned char *out, unsigned load, unsigned count) {
     unsigned k = 0;
-    for (unsigned n = 0; n < 16; ++n) {
+    for (unsigned n = 0; n < count; ++n) {
         const int32_t disp = (int32_t)(n * 32);
         out[k++] = 0xc5;
         out[k++] = n < 8 ? 0xfc : 0x7c;
@@ -105,10 +106,12 @@ static inline unsigned gow3_menu_emit_ymm(unsigned char *out, unsigned load) {
 }
 
 /* The loader's hook: every register and vector register comes back as it was; helper(base)
- * runs in between, then the replaced bytes and a jump back. The size of the stub. */
+ * runs in between, then the replaced bytes and a jump back. The hook sits mid-function, so the
+ * 128 bytes below rsp (the SysV red zone) are stepped over first. The size of the stub. */
 static inline unsigned gow3_menu_build_load_stub(unsigned char *out, uintptr_t helper, uintptr_t resume,
                                                  const unsigned char original[GOW3_MENU_LOAD_LENGTH]) {
     static const unsigned char save[] = {
+        0x48, 0x8d, 0x64, 0x24, 0x80,                                                       /* lea rsp, [rsp-0x80] */
         0x9c, 0x50, 0x51, 0x52, 0x56, 0x57, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53, /* pushfq, rax..r11 */
         0x55, 0x48, 0x89, 0xe5,                                                             /* push rbp; mov rbp, rsp */
         0x48, 0x83, 0xe4, 0xe0,                                                             /* and rsp, -32 */
@@ -116,16 +119,17 @@ static inline unsigned gow3_menu_build_load_stub(unsigned char *out, uintptr_t h
     };
     static const unsigned char restore[] = {
         0x48, 0x89, 0xec, 0x5d, 0x41, 0x5b, 0x41, 0x5a, 0x41, 0x59, 0x41, 0x58, /* mov rsp, rbp; pop rbp; pop r11..r8 */
-        0x5f, 0x5e, 0x5a, 0x59, 0x58, 0x9d                                      /* pop rdi, rsi, rdx, rcx, rax; popfq */
+        0x5f, 0x5e, 0x5a, 0x59, 0x58, 0x9d,                                     /* pop rdi, rsi, rdx, rcx, rax; popfq */
+        0x48, 0x8d, 0xa4, 0x24, 0x80, 0x00, 0x00, 0x00                          /* lea rsp, [rsp+0x80] */
     };
     unsigned k = 0;
     memcpy(out + k, save, sizeof(save)); k += sizeof(save);
-    k += gow3_menu_emit_ymm(out + k, 0);
+    k += gow3_menu_emit_ymm(out + k, 0, 16);
     out[k++] = 0x4c; out[k++] = 0x89; out[k++] = 0xc7; /* mov rdi, r8 */
     out[k++] = 0x48; out[k++] = 0xb8;                   /* mov rax, helper */
     memcpy(out + k, &helper, 8); k += 8;
     out[k++] = 0xff; out[k++] = 0xd0;                   /* call rax */
-    k += gow3_menu_emit_ymm(out + k, 1);
+    k += gow3_menu_emit_ymm(out + k, 1, 16);
     memcpy(out + k, restore, sizeof(restore)); k += sizeof(restore);
     memcpy(out + k, original, GOW3_MENU_LOAD_LENGTH); k += GOW3_MENU_LOAD_LENGTH;
     static const unsigned char jump[] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00}; /* jmp [rip+0] */
@@ -135,22 +139,29 @@ static inline unsigned gow3_menu_build_load_stub(unsigned char *out, uintptr_t h
 }
 
 /* The dispatcher's hook: helper(hash) is told of every button, then the dispatcher runs as it
- * would have (the arguments and the stack as at its entry). */
+ * would have (the argument registers, ymm0-7 included, and the stack as at its entry: the
+ * pause button's helper opens a dialog, C++ that may use any of them). */
 static inline unsigned gow3_menu_build_click_stub(unsigned char *out, uintptr_t helper, uintptr_t resume,
                                                   const unsigned char original[GOW3_MENU_CLICK_LENGTH]) {
     static const unsigned char save[] = {
         0x57, 0x56, 0x52, 0x51, 0x41, 0x50, 0x41, 0x51, /* push rdi, rsi, rdx, rcx, r8, r9 */
-        0x48, 0x83, 0xec, 0x08,                         /* sub rsp, 8 */
-        0x89, 0xf7,                                     /* mov edi, esi */
-        0x48, 0xb8                                      /* mov rax, helper */
+        0x48, 0x81, 0xec, 0x08, 0x01, 0x00, 0x00        /* sub rsp, 0x108 (ymm0-7, 16-byte aligned) */
+    };
+    static const unsigned char call[] = {
+        0x89, 0xf7, /* mov edi, esi */
+        0x48, 0xb8  /* mov rax, helper */
     };
     static const unsigned char restore[] = {
-        0x48, 0x83, 0xc4, 0x08, 0x41, 0x59, 0x41, 0x58, 0x59, 0x5a, 0x5e, 0x5f /* add rsp, 8; pop r9..rdi */
+        0x48, 0x81, 0xc4, 0x08, 0x01, 0x00, 0x00,                   /* add rsp, 0x108 */
+        0x41, 0x59, 0x41, 0x58, 0x59, 0x5a, 0x5e, 0x5f              /* pop r9..rdi */
     };
     unsigned k = 0;
     memcpy(out + k, save, sizeof(save)); k += sizeof(save);
+    k += gow3_menu_emit_ymm(out + k, 0, 8);
+    memcpy(out + k, call, sizeof(call)); k += sizeof(call);
     memcpy(out + k, &helper, 8); k += 8;
     out[k++] = 0xff; out[k++] = 0xd0; /* call rax */
+    k += gow3_menu_emit_ymm(out + k, 1, 8);
     memcpy(out + k, restore, sizeof(restore)); k += sizeof(restore);
     memcpy(out + k, original, GOW3_MENU_CLICK_LENGTH); k += GOW3_MENU_CLICK_LENGTH;
     static const unsigned char jump[] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00};
