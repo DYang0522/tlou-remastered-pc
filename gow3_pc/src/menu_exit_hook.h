@@ -16,6 +16,15 @@
 #define GOW3_MENU_LABEL_QUIT 0xe5f5e373u
 #define GOW3_MENU_EXIT_LOBBY 0x3c9e51a7u
 #define GOW3_MENU_EXIT_PAUSE 0x3c9e51a8u
+/* The game's own Yes/No page (the one "Quit to Main Menu?" uses): its title, its two labels and
+ * the button hash each answer sends back through the dispatcher. Our Yes sends EXIT_CONFIRMED;
+ * the No answer is the game's (it closes the page). Texts from text1/<language>.common: "Leave
+ * the game?" ("Sair do jogo?"), "Yes", "No", in every language the game has. */
+#define GOW3_MENU_EXIT_CONFIRMED 0x3c9e51a9u
+#define GOW3_MENU_TEXT_LEAVE_GAME 0x2df029e8u
+#define GOW3_MENU_TEXT_YES 0x0260a263u
+#define GOW3_MENU_TEXT_NO 0x075bc82du
+#define GOW3_MENU_CONFIRM_NO 0xfc5ba05du
 enum {
     GOW3_MENU_ITEM_SIZE = 0x70, GOW3_MENU_ENTRY_SIZE = 24, GOW3_MENU_MAX_ITEMS = 63,
     GOW3_MENU_ITEM_HASH = 8, GOW3_MENU_ITEM_KIND = 0x10, GOW3_MENU_ITEM_LABEL = 0x28,
@@ -27,6 +36,11 @@ static const Gow3Signature gow3_menu_load_site = {
     "4c 8b 65 b8 49 63 48 14 48 85 c9 41 89 4c 24 30 49 8b 40 18 49 89 44 24 38 7e 22 31 d2 48 89 c6", 0};
 static const Gow3Signature gow3_menu_click_site = {
     "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec d8 01 00 00 89 95 2c fe ff ff 49 89 f8 41 89 f4", 0};
+/* The confirmation opener (update 1.11: 0x30fc70): open(menu, title, yes label, yes button,
+ * no label, no button, [stack] 0) fills the menu's dialog record (menu+0x1470) and shows the
+ * Yes/No page (0x960d2b9d), as the Quit to Main Menu button does with its own constants. */
+static const Gow3Signature gow3_menu_confirm_open = {
+    "48 8b 87 70 14 00 00 44 8b 54 24 08 45 85 c0 89 70 08 89 50 14 89 48 18 0f 95 c1 44 89 40 1c 44 89 48 20 be", 0};
 enum { GOW3_MENU_LOAD_LENGTH = 8, GOW3_MENU_CLICK_LENGTH = 6 };
 
 static inline uint32_t gow3_menu_u32(const unsigned char *p) { uint32_t v; memcpy(&v, p, 4); return v; }
@@ -138,9 +152,9 @@ static inline unsigned gow3_menu_build_load_stub(unsigned char *out, uintptr_t h
     return k;
 }
 
-/* The dispatcher's hook: helper(hash) is told of every button, then the dispatcher runs as it
- * would have (the argument registers, ymm0-7 included, and the stack as at its entry: the
- * pause button's helper opens a dialog, C++ that may use any of them). */
+/* The dispatcher's hook: helper(menu, hash) (the dispatcher's own rdi and esi) is told of every
+ * button, then the dispatcher runs as it would have (the argument registers, ymm0-7 included,
+ * and the stack as at its entry: the pause button's helper opens the game's Yes/No page). */
 static inline unsigned gow3_menu_build_click_stub(unsigned char *out, uintptr_t helper, uintptr_t resume,
                                                   const unsigned char original[GOW3_MENU_CLICK_LENGTH]) {
     static const unsigned char save[] = {
@@ -148,8 +162,7 @@ static inline unsigned gow3_menu_build_click_stub(unsigned char *out, uintptr_t 
         0x48, 0x81, 0xec, 0x08, 0x01, 0x00, 0x00        /* sub rsp, 0x108 (ymm0-7, 16-byte aligned) */
     };
     static const unsigned char call[] = {
-        0x89, 0xf7, /* mov edi, esi */
-        0x48, 0xb8  /* mov rax, helper */
+        0x48, 0xb8 /* mov rax, helper */
     };
     static const unsigned char restore[] = {
         0x48, 0x81, 0xc4, 0x08, 0x01, 0x00, 0x00,                   /* add rsp, 0x108 */

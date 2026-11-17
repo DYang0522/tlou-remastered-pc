@@ -10,7 +10,9 @@
 void runtime_menu_exit_set_arena(unsigned char *arena, size_t size);
 /* Called by the hooks, from guest code. */
 ABI void runtime_menu_exit_data_loaded(unsigned char *data);
-ABI void runtime_menu_exit_button(uint32_t hash);
+ABI void runtime_menu_exit_button(void *menu, uint32_t hash);
+/* The game's Yes/No page opener (menu_exit_hook.h); without it the pause menu asks in an overlay. */
+void runtime_menu_exit_set_confirm(void *open);
 /* From the pad's sampling: the pause menu's confirmation answer. */
 void runtime_menu_exit_tick(void);
 #endif

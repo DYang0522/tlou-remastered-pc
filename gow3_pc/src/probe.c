@@ -1010,13 +1010,17 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
                               (uintptr_t)(image + load_at + GOW3_MENU_LOAD_LENGTH), image + load_at);
     protect(stubs, page_size, 5);
     runtime_menu_exit_set_arena(arena, page_size * ARENA_PAGES);
+    const uint64_t confirm_at = gow3_signature_find(image, size, &gow3_menu_confirm_open);
+    const int confirm = confirm_at != UINT64_MAX && mapped(segments, count, confirm_at, 36);
+    if (confirm) runtime_menu_exit_set_confirm(image + confirm_at);
     if (!install_jump(click_at, GOW3_MENU_CLICK_LENGTH, stubs + CLICK_STUB) ||
         !install_jump(load_at, GOW3_MENU_LOAD_LENGTH, stubs)) {
         puts("Menu: QUIT button unavailable (hook outside relative-jump range)");
         return;
     }
-    printf("Menu: QUIT button hooks ready (data loader %#llx, dispatcher %#llx)\n", (unsigned long long)load_at,
-           (unsigned long long)click_at);
+    printf("Menu: QUIT button hooks ready (data loader %#llx, dispatcher %#llx, pause menu asks %s)\n",
+           (unsigned long long)load_at, (unsigned long long)click_at,
+           confirm ? "on the game's Yes/No page" : "in an overlay (game's Yes/No page not found)");
 }
 /* G3PATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap

@@ -80,5 +80,7 @@ int main(void) {
     /* entry rsp = 8 mod 16; six pushes and 0x108 leave the call 16-byte aligned. */
     assert(!memcmp(stub + 8, "\x48\x81\xec\x08\x01\x00\x00", 7));
     assert(!memcmp(stub + n - 20, click_original, GOW3_MENU_CLICK_LENGTH));
+    /* helper(menu, hash) takes the dispatcher's rdi and esi as they are: the call follows the saves. */
+    assert(!memcmp(stub + 15 + 8 * 9, "\x48\xb8", 2));
     return 0;
 }

@@ -65,9 +65,21 @@ static void leave(void) {
     gow3gpu_request_exit();
 }
 
-ABI void runtime_menu_exit_button(uint32_t hash) {
-    if (hash == GOW3_MENU_EXIT_LOBBY) {
+typedef ABI void (*ConfirmOpen)(void *menu, uint32_t title, uint32_t yes_label, uint32_t yes_button,
+                                 uint32_t no_label, uint32_t no_button, uint32_t extra);
+static ConfirmOpen confirm_open;
+
+void runtime_menu_exit_set_confirm(void *open) {
+    confirm_open = (ConfirmOpen)open;
+}
+
+/* Runs on the menu's thread, at the dispatcher's entry: the game's own opener is safe to call. */
+ABI void runtime_menu_exit_button(void *menu, uint32_t hash) {
+    if (hash == GOW3_MENU_EXIT_LOBBY || hash == GOW3_MENU_EXIT_CONFIRMED) {
         leave();
+    } else if (hash == GOW3_MENU_EXIT_PAUSE && confirm_open && menu) {
+        confirm_open(menu, GOW3_MENU_TEXT_LEAVE_GAME, GOW3_MENU_TEXT_YES, GOW3_MENU_EXIT_CONFIRMED,
+                     GOW3_MENU_TEXT_NO, GOW3_MENU_CONFIRM_NO, 0);
     } else if (hash == GOW3_MENU_EXIT_PAUSE && !atomic_load(&asking)) {
         static const char *const items[] = {"Cancel", "Quit to desktop"};
         if (gow3gpu_choice_begin("Quit to desktop? Unsaved progress is lost.", items, NULL, 2, 0)) atomic_store(&asking, 1);
