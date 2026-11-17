@@ -997,7 +997,7 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
         puts("Menu: QUIT button unavailable (code not found in this eboot.bin)");
         return;
     }
-    enum { CLICK_STUB = 512, ARENA_PAGES = 16 };
+    enum { CLICK_STUB = 512, TEXT_STUB = 1024, ARENA_PAGES = 16 };
     unsigned char *stubs = allocate_near_image(size);
     unsigned char *arena = allocate(page_size * ARENA_PAGES);
     if (!stubs || !arena) {
@@ -1008,6 +1008,13 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
                                (uintptr_t)(image + click_at + GOW3_MENU_CLICK_LENGTH), image + click_at);
     gow3_menu_build_load_stub(stubs, (uintptr_t)runtime_menu_exit_data_loaded,
                               (uintptr_t)(image + load_at + GOW3_MENU_LOAD_LENGTH), image + load_at);
+    /* The button's own label (QUIT TO DESKTOP, translated); the game's QUIT without this hook. */
+    const uint64_t text_at = gow3_signature_find(image, size, &gow3_menu_text_lookup);
+    const int text = text_at != UINT64_MAX && mapped(segments, count, text_at, GOW3_MENU_TEXT_LENGTH);
+    unsigned text_original = 0;
+    if (text)
+        gow3_menu_build_text_stub(stubs + TEXT_STUB, (uintptr_t)runtime_menu_exit_text,
+                                  (uintptr_t)(image + text_at + GOW3_MENU_TEXT_LENGTH), image + text_at, &text_original);
     protect(stubs, page_size, 5);
     runtime_menu_exit_set_arena(arena, page_size * ARENA_PAGES);
     const uint64_t confirm_at = gow3_signature_find(image, size, &gow3_menu_confirm_open);
@@ -1018,8 +1025,11 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
         puts("Menu: QUIT button unavailable (hook outside relative-jump range)");
         return;
     }
-    printf("Menu: QUIT button hooks ready (data loader %#llx, dispatcher %#llx, pause menu asks %s)\n",
+    const int label = text && install_jump(text_at, GOW3_MENU_TEXT_LENGTH, stubs + TEXT_STUB);
+    if (label) runtime_menu_exit_set_text(stubs + TEXT_STUB + text_original);
+    printf("Menu: QUIT button hooks ready (data loader %#llx, dispatcher %#llx, label %s, pause menu asks %s)\n",
            (unsigned long long)load_at, (unsigned long long)click_at,
+           label ? "QUIT TO DESKTOP" : "QUIT (text lookup not found)",
            confirm ? "on the game's Yes/No page" : "in an overlay (game's Yes/No page not found)");
 }
 /* G3PATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied

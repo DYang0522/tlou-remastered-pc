@@ -3,6 +3,7 @@
 #include "menu_exit_hook.h"
 #include <stdatomic.h>
 #include <stdio.h>
+#include <string.h>
 
 #define DATA_MAGIC 0x44433030u
 #define DATA_MIN 0x1000u
@@ -19,6 +20,54 @@ static Region regions[REGIONS];
 static unsigned region_count, full_reported;
 static atomic_flag arena_lock = ATOMIC_FLAG_INIT;
 static atomic_int asking, leaving;
+static uint32_t label = GOW3_MENU_LABEL_QUIT;
+
+/* "QUIT TO DESKTOP" in the game's languages. The table's language is told by its own "Leave the
+ * game?", different in each (Portugal and Brazil included; the two English and the two Spanish
+ * tables share one answer). Every character is one the game's text in that language already uses,
+ * so its font has it ("desktop" is not among the Chinese ones: "leave the game" there). */
+static const struct { const char *leave_game, *label; } desktop_labels[] = {
+    {"Leave the game?", "QUIT TO DESKTOP"},
+    {"Voulez-vous vraiment quitter ?", "QUITTER VERS LE BUREAU"},
+    {"Abbandonare?", "ESCI AL DESKTOP"},
+    {"Spiel verlassen?", "ZUM DESKTOP BEENDEN"},
+    {"¿Abandonar partida?", "SALIR AL ESCRITORIO"},
+    {"¿Abandonar el juego?", "SALIR AL ESCRITORIO"},
+    {"Forlad spillet?", "AFSLUT TIL SKRIVEBORDET"},
+    {"De certeza que queres sair?", "SAIR PARA O AMBIENTE DE TRABALHO"},
+    {"Sair do jogo?", "SAIR PARA A ÁREA DE TRABALHO"},
+    {"Spel verlaten?", "AFSLUITEN NAAR BUREAUBLAD"},
+    {"ゲームを退出しますか？", "デスクトップに戻る"},
+    {"게임에서 나가시겠습니까?", "바탕 화면으로 나가기"},
+    {"Haluatko poistua pelistä?", "POISTU TYÖPÖYDÄLLE"},
+    {"Vil du gå ut av spillet?", "AVSLUTT TIL SKRIVEBORDET"},
+    {"Lämna spelet?", "AVSLUTA TILL SKRIVBORDET"},
+    {"確定要離開遊戲嗎？", "離開遊戲"},
+    {"Вы уверены, что хотите выйти?",
+     "ВЫЙТИ НА РАБОЧИЙ СТОЛ"},
+    {"Wyjść z gry?", "WYJDŹ DO PULPITU"},
+    {"Έξοδος από το παιχνίδι;",
+     "ΕΞΟΔΟΣ ΣΤΗΝ ΕΠΙΦΑΝΕΙΑ ΕΡΓΑΣΙΑΣ"},
+    {"Odejít ze hry?", "UKONČIT DO PLOCHY"},
+    {"Oyundan çıkılsın mı?", "MASAÜSTÜNE ÇIK"},
+};
+typedef ABI const char *(*TextLookup)(void *table, uint32_t sid);
+static TextLookup text_original;
+
+void runtime_menu_exit_set_text(void *original) {
+    text_original = (TextLookup)original;
+    label = GOW3_MENU_LABEL_EXIT_DESKTOP;
+}
+
+/* text(table, LABEL_EXIT_DESKTOP), from the lookup's hook. */
+ABI const char *runtime_menu_exit_text(void *table, uint32_t sid) {
+    (void)sid;
+    const char *leave = text_original(table, GOW3_MENU_TEXT_LEAVE_GAME);
+    if (leave)
+        for (size_t i = 0; i < sizeof(desktop_labels) / sizeof(desktop_labels[0]); ++i)
+            if (!strcmp(leave, desktop_labels[i].leave_game)) return desktop_labels[i].label;
+    return desktop_labels[0].label;
+}
 
 void runtime_menu_exit_set_arena(unsigned char *memory, size_t size) {
     arena = memory;
@@ -41,11 +90,11 @@ ABI void runtime_menu_exit_data_loaded(unsigned char *data) {
     Region *region = region_of((uintptr_t)data);
     if (region) {
         size_t used = 0;
-        done = gow3_menu_patch(data, size, arena + region->offset, region->length, &used);
+        done = gow3_menu_patch(data, size, arena + region->offset, region->length, &used, label);
     }
     if (!done.lobby && !done.pause) {
         size_t used = arena_end;
-        done = gow3_menu_patch(data, size, arena, arena_size, &used);
+        done = gow3_menu_patch(data, size, arena, arena_size, &used, label);
         if (done.lobby || done.pause) {
             if (!region && region_count < REGIONS) region = &regions[region_count++];
             if (region) *region = (Region){(uintptr_t)data, arena_end, used - arena_end};

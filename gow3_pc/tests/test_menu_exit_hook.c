@@ -38,14 +38,14 @@ int main(void) {
     entry(LOBBY_ENTRY, 4, LOBBY_ITEMS);
 
     size_t used = 0;
-    Gow3MenuPatched done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used);
+    Gow3MenuPatched done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used, GOW3_MENU_LABEL_EXIT_DESKTOP);
     assert(done.pause == 1 && done.lobby == 1 && used && used % 16 == 0);
 
     assert(gow3_menu_u64(data + PAUSE_ENTRY) == 4);
     unsigned char *pause = (unsigned char *)(uintptr_t)gow3_menu_u64(data + PAUSE_ENTRY + 8);
     assert(gow3_menu_u32(pause + 2 * GOW3_MENU_ITEM_SIZE + GOW3_MENU_ITEM_HASH) == GOW3_MENU_BUTTON_QUIT);
     assert(gow3_menu_u32(pause + 3 * GOW3_MENU_ITEM_SIZE + GOW3_MENU_ITEM_HASH) == GOW3_MENU_EXIT_PAUSE);
-    assert(gow3_menu_u32(pause + 3 * GOW3_MENU_ITEM_SIZE + GOW3_MENU_ITEM_LABEL) == GOW3_MENU_LABEL_QUIT);
+    assert(gow3_menu_u32(pause + 3 * GOW3_MENU_ITEM_SIZE + GOW3_MENU_ITEM_LABEL) == GOW3_MENU_LABEL_EXIT_DESKTOP);
     assert(!strcmp((const char *)(uintptr_t)gow3_menu_u64(pause + 3 * GOW3_MENU_ITEM_SIZE), "BUTTON_EXIT_DESKTOP"));
 
     assert(gow3_menu_u64(data + LOBBY_ENTRY) == 5);
@@ -56,14 +56,14 @@ int main(void) {
     assert(hash_at(PAUSE_ITEMS, 2) == GOW3_MENU_BUTTON_QUIT && hash_at(LOBBY_ITEMS, 3) == 0);
 
     const size_t before = used;
-    done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used);
+    done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used, GOW3_MENU_LABEL_EXIT_DESKTOP);
     assert(!done.pause && !done.lobby && used == before);
 
     memset(arena, 0, sizeof(arena));
     entry(PAUSE_ENTRY, 3, PAUSE_ITEMS);
     entry(LOBBY_ENTRY, 4, LOBBY_ITEMS);
     used = sizeof(arena) - 16;
-    done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used);
+    done = gow3_menu_patch(data, SIZE, arena, sizeof(arena), &used, GOW3_MENU_LABEL_EXIT_DESKTOP);
     assert(!done.pause && !done.lobby);
 
     /* Stubs: fit the 512 bytes probe.c gives each, step over the red zone, keep rsp aligned. */
@@ -82,5 +82,13 @@ int main(void) {
     assert(!memcmp(stub + n - 20, click_original, GOW3_MENU_CLICK_LENGTH));
     /* helper(menu, hash) takes the dispatcher's rdi and esi as they are: the call follows the saves. */
     assert(!memcmp(stub + 15 + 8 * 9, "\x48\xb8", 2));
+
+    /* Text stub: our id jumps to the helper, any other runs the replayed entry. */
+    static const unsigned char text_original[GOW3_MENU_TEXT_LENGTH] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
+    unsigned original_at = 0;
+    n = gow3_menu_build_text_stub(stub, 0x1111, 0x2222, text_original, &original_at);
+    assert(n <= 64 && original_at == 20 && stub[6] == 0x75 && 8 + stub[7] == original_at);
+    assert(gow3_menu_u32(stub + 2) == GOW3_MENU_LABEL_EXIT_DESKTOP);
+    assert(!memcmp(stub + original_at, text_original, GOW3_MENU_TEXT_LENGTH));
     return 0;
 }

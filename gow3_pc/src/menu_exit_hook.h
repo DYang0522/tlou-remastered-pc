@@ -25,6 +25,9 @@
 #define GOW3_MENU_TEXT_YES 0x0260a263u
 #define GOW3_MENU_TEXT_NO 0x075bc82du
 #define GOW3_MENU_CONFIRM_NO 0xfc5ba05du
+/* The button's own label ("QUIT TO DESKTOP"), answered by the text lookup hook below; the game's
+ * "QUIT" (LABEL_QUIT) when that hook is not in. */
+#define GOW3_MENU_LABEL_EXIT_DESKTOP 0x3c9e51aau
 enum {
     GOW3_MENU_ITEM_SIZE = 0x70, GOW3_MENU_ENTRY_SIZE = 24, GOW3_MENU_MAX_ITEMS = 63,
     GOW3_MENU_ITEM_HASH = 8, GOW3_MENU_ITEM_KIND = 0x10, GOW3_MENU_ITEM_LABEL = 0x28,
@@ -41,7 +44,11 @@ static const Gow3Signature gow3_menu_click_site = {
  * Yes/No page (0x960d2b9d), as the Quit to Main Menu button does with its own constants. */
 static const Gow3Signature gow3_menu_confirm_open = {
     "48 8b 87 70 14 00 00 44 8b 54 24 08 45 85 c0 89 70 08 89 50 14 89 48 18 0f 95 c1 44 89 40 1c 44 89 48 20 be", 0};
-enum { GOW3_MENU_LOAD_LENGTH = 8, GOW3_MENU_CLICK_LENGTH = 6 };
+/* The text lookup (update 1.11: 0xbe4d80): text(table, sid) gives the string of a text id in the
+ * table's language (text1/<language>.common), or NULL. */
+static const Gow3Signature gow3_menu_text_lookup = {
+    "55 48 89 e5 41 57 41 56 53 48 81 ec 08 10 00 00 48 8d 05 ?? ?? ?? ?? 89 f3 49 89 fe 48 8b 00 80 b8 74 2f 00 00 00", 0};
+enum { GOW3_MENU_LOAD_LENGTH = 8, GOW3_MENU_CLICK_LENGTH = 6, GOW3_MENU_TEXT_LENGTH = 6 };
 
 static inline uint32_t gow3_menu_u32(const unsigned char *p) { uint32_t v; memcpy(&v, p, 4); return v; }
 static inline uint64_t gow3_menu_u64(const unsigned char *p) { uint64_t v; memcpy(&v, p, 8); return v; }
@@ -53,7 +60,7 @@ typedef struct { unsigned lobby, pause; } Gow3MenuPatched;
  * is copied into the arena and its table entry repointed; the file's own arrays stay as they are.
  * A list that does not look as expected is left alone. */
 static inline Gow3MenuPatched gow3_menu_patch(unsigned char *data, uint64_t size, unsigned char *arena,
-                                              size_t arena_size, size_t *used) {
+                                              size_t arena_size, size_t *used, uint32_t label) {
     Gow3MenuPatched done = {0, 0};
     const uint64_t first = (uint64_t)(uintptr_t)data, last = first + size;
     for (uint64_t at = 0; at + GOW3_MENU_ENTRY_SIZE <= size; at += 8) {
@@ -90,7 +97,7 @@ static inline Gow3MenuPatched gow3_menu_patch(unsigned char *data, uint64_t size
         unsigned char *item = copy + insert * GOW3_MENU_ITEM_SIZE;
         memcpy(item, model, GOW3_MENU_ITEM_SIZE);
         const uint64_t name_pointer = (uint64_t)(uintptr_t)name;
-        const uint32_t hash = quit ? GOW3_MENU_EXIT_PAUSE : GOW3_MENU_EXIT_LOBBY, label = GOW3_MENU_LABEL_QUIT;
+        const uint32_t hash = quit ? GOW3_MENU_EXIT_PAUSE : GOW3_MENU_EXIT_LOBBY;
         memcpy(item, &name_pointer, 8);
         memcpy(item + GOW3_MENU_ITEM_HASH, &hash, 4);
         memcpy(item + GOW3_MENU_ITEM_LABEL, &label, 4);
@@ -177,6 +184,26 @@ static inline unsigned gow3_menu_build_click_stub(unsigned char *out, uintptr_t 
     k += gow3_menu_emit_ymm(out + k, 1, 8);
     memcpy(out + k, restore, sizeof(restore)); k += sizeof(restore);
     memcpy(out + k, original, GOW3_MENU_CLICK_LENGTH); k += GOW3_MENU_CLICK_LENGTH;
+    static const unsigned char jump[] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00};
+    memcpy(out + k, jump, sizeof(jump)); k += sizeof(jump);
+    memcpy(out + k, &resume, 8); k += 8;
+    return k;
+}
+
+/* The text lookup's hook: text(table, LABEL_EXIT_DESKTOP) goes to helper(table, sid) (a tail
+ * call: its answer is the lookup's), every other id to the lookup as it was. The original entry
+ * (the replayed bytes, then a jump back) starts at *original_at, for the helper's own lookups. */
+static inline unsigned gow3_menu_build_text_stub(unsigned char *out, uintptr_t helper, uintptr_t resume,
+                                                 const unsigned char original[GOW3_MENU_TEXT_LENGTH],
+                                                 unsigned *original_at) {
+    unsigned k = 0;
+    const uint32_t sid = GOW3_MENU_LABEL_EXIT_DESKTOP;
+    out[k++] = 0x81; out[k++] = 0xfe; memcpy(out + k, &sid, 4); k += 4; /* cmp esi, sid */
+    out[k++] = 0x75; out[k++] = 12;                                       /* jne original */
+    out[k++] = 0x48; out[k++] = 0xb8; memcpy(out + k, &helper, 8); k += 8; /* mov rax, helper */
+    out[k++] = 0xff; out[k++] = 0xe0;                                     /* jmp rax */
+    *original_at = k;
+    memcpy(out + k, original, GOW3_MENU_TEXT_LENGTH); k += GOW3_MENU_TEXT_LENGTH;
     static const unsigned char jump[] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00};
     memcpy(out + k, jump, sizeof(jump)); k += sizeof(jump);
     memcpy(out + k, &resume, 8); k += 8;
