@@ -70,6 +70,8 @@ namespace {
 std::mutex imgui_mutex; // the ImGui context: window thread (input) and present thread
 bool initialized = false;
 std::atomic<bool> menu_open{false};
+/// RequestOpen (any thread): opened by the next Render.
+std::atomic<bool> open_requested{false};
 // gow3 18 Oct (GitHub #15, #19): the controller buttons held now (bit = SDL gamepad button; the
 // triggers, pressed past half, as the two top bits). The menu opens when every button of its
 // shortcut is held: LT + right stick click, View + Menu, or the player's own one or two buttons.
@@ -193,6 +195,7 @@ void SetOpen(bool value) {
     if (menu_open.exchange(value) == value) {
         return;
     }
+    std::printf("Overlay: settings menu %s\n", value ? "opened" : "closed");
     ImGui::GetIO().MouseDrawCursor = value;
     CancelCapture();
     if (value) {
@@ -1954,12 +1957,17 @@ void SetLoading(bool active, u32 done, u32 total) {
 
 bool Visible() {
     const auto& s = Gow3Settings::Get();
-    return initialized && (loading || background_total || menu_open || text_entry_active || choice_active ||
+    // open_requested: the next Render opens the menu, also when nothing else is drawn.
+    return initialized && (loading || background_total || menu_open || open_requested || text_entry_active || choice_active ||
                            choice_retiring || s.show_fps || trophy_showing);
 }
 
 bool CapturesInput() {
     return menu_open || text_entry_active || choice_active;
+}
+
+void RequestOpen() {
+    open_requested = true;
 }
 
 void BeginChoice(const std::string& title, const std::vector<std::string>& items,
@@ -2035,6 +2043,11 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
         Gow3Settings::Get().menu_tab = menu_at_start;
         SetOpen(true);
         menu_at_start = -1;
+    }
+    if (open_requested.exchange(false) && initialized) {
+        std::puts("Overlay: settings menu requested by the game's PC SETTINGS page");
+        std::scoped_lock lock{imgui_mutex};
+        SetOpen(true);
     }
     // GOW3_TEST_TROPHY=<seconds>,<id> (tests and screenshots): that trophy's popup once the game
     // has shown frames that long after loading (marked earned for this session only, not saved).

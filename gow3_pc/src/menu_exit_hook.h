@@ -28,6 +28,10 @@
 /* The button's own label ("QUIT TO DESKTOP"), answered by the text lookup hook below; the game's
  * "QUIT" (LABEL_QUIT) when that hook is not in. */
 #define GOW3_MENU_LABEL_EXIT_DESKTOP 0x3c9e51aau
+/* The text ids the text hook answers itself (this label and the PC settings page's, in
+ * src/menu_pc_hook.h); every other id goes to the game's lookup. */
+#define GOW3_MENU_TEXT_FIRST GOW3_MENU_LABEL_EXIT_DESKTOP
+#define GOW3_MENU_TEXT_LAST 0x3c9e51ffu
 enum {
     GOW3_MENU_ITEM_SIZE = 0x70, GOW3_MENU_ENTRY_SIZE = 24, GOW3_MENU_MAX_ITEMS = 63,
     GOW3_MENU_ITEM_HASH = 8, GOW3_MENU_ITEM_KIND = 0x10, GOW3_MENU_ITEM_LABEL = 0x28,
@@ -190,16 +194,19 @@ static inline unsigned gow3_menu_build_click_stub(unsigned char *out, uintptr_t 
     return k;
 }
 
-/* The text lookup's hook: text(table, LABEL_EXIT_DESKTOP) goes to helper(table, sid) (a tail
- * call: its answer is the lookup's), every other id to the lookup as it was. The original entry
- * (the replayed bytes, then a jump back) starts at *original_at, for the helper's own lookups. */
+/* The text lookup's hook: text(table, sid) for sid in [TEXT_FIRST, TEXT_LAST] goes to
+ * helper(table, sid) (a tail call: its answer is the lookup's), every other id to the lookup as
+ * it was (eax is free at a function's entry). The original entry (the replayed bytes, then a jump
+ * back) starts at *original_at, for the helper's own lookups. */
 static inline unsigned gow3_menu_build_text_stub(unsigned char *out, uintptr_t helper, uintptr_t resume,
                                                  const unsigned char original[GOW3_MENU_TEXT_LENGTH],
                                                  unsigned *original_at) {
     unsigned k = 0;
-    const uint32_t sid = GOW3_MENU_LABEL_EXIT_DESKTOP;
-    out[k++] = 0x81; out[k++] = 0xfe; memcpy(out + k, &sid, 4); k += 4; /* cmp esi, sid */
-    out[k++] = 0x75; out[k++] = 12;                                       /* jne original */
+    const uint32_t first = GOW3_MENU_TEXT_FIRST, count = GOW3_MENU_TEXT_LAST - GOW3_MENU_TEXT_FIRST + 1;
+    out[k++] = 0x89; out[k++] = 0xf0;                                    /* mov eax, esi */
+    out[k++] = 0x2d; memcpy(out + k, &first, 4); k += 4;                 /* sub eax, first */
+    out[k++] = 0x3d; memcpy(out + k, &count, 4); k += 4;                 /* cmp eax, count */
+    out[k++] = 0x73; out[k++] = 12;                                       /* jae original */
     out[k++] = 0x48; out[k++] = 0xb8; memcpy(out + k, &helper, 8); k += 8; /* mov rax, helper */
     out[k++] = 0xff; out[k++] = 0xe0;                                     /* jmp rax */
     *original_at = k;

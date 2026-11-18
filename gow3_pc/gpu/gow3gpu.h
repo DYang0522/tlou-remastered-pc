@@ -98,6 +98,23 @@ int gow3gpu_controls_vibration(void);
 int gow3gpu_settings_fade_distance(void);
 int gow3gpu_settings_sun_shadow_distance(void);
 int gow3gpu_settings_light_shadow_distance(void);
+/* The game's own Options > PC SETTINGS page (src/runtime_menu_pc.c). A setting's value: 0/1,
+ * a list index (display mode, FpsLimits, the anti-aliasing choices available) or a percent.
+ * count: the values of a toggle or list (2 for on/off; anti-aliasing 1 when this game has none).
+ * choice: a list value's name (FPS and anti-aliasing; NULL otherwise). set: applied live; save:
+ * the settings file. menu_open: opens the overlay settings menu (on the next presented frame),
+ * from any thread. */
+enum {
+    GOW3_PC_DISPLAY_MODE, GOW3_PC_VSYNC, GOW3_PC_FPS_LIMIT, GOW3_PC_ANTI_ALIASING, GOW3_PC_SHARPENING,
+    GOW3_PC_PERF_OVERLAY, GOW3_PC_MOUSE_SENS, GOW3_PC_MOUSE_AIM_SENS, GOW3_PC_MOUSE_VERTICAL,
+    GOW3_PC_MOUSE_INVERT, GOW3_PC_VIBRATION, GOW3_PC_SETTING_COUNT
+};
+int gow3gpu_pc_setting(int setting);
+int gow3gpu_pc_setting_count(int setting);
+const char *gow3gpu_pc_setting_choice(int setting, int index);
+void gow3gpu_pc_setting_set(int setting, int value);
+void gow3gpu_pc_settings_save(void);
+void gow3gpu_settings_menu_open(void);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned gow3gpu_symbol_count(void);
 #ifdef __cplusplus

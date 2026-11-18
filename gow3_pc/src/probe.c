@@ -11,6 +11,7 @@
 #include "orb_hook.h"
 #include "menu_exit_hook.h"
 #include "runtime_menu_exit.h"
+#include "runtime_menu_pc.h"
 #include "cheat_hook.h"
 #include "actor_hook.h"
 #include "damage_hook.h"
@@ -997,7 +998,9 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
         puts("Menu: QUIT button unavailable (code not found in this eboot.bin)");
         return;
     }
-    enum { CLICK_STUB = 512, TEXT_STUB = 1024, ARENA_PAGES = 16 };
+    /* The arena: the exit button's lists and the PC settings page (src/menu_pc_hook.h: the page
+     * table is copied, ~14 KiB per menu data load). */
+    enum { CLICK_STUB = 512, TEXT_STUB = 1024, OPTION_STUB = 1536, ARENA_PAGES = 64 };
     unsigned char *stubs = allocate_near_image(size);
     unsigned char *arena = allocate(page_size * ARENA_PAGES);
     if (!stubs || !arena) {
@@ -1015,6 +1018,19 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
     if (text)
         gow3_menu_build_text_stub(stubs + TEXT_STUB, (uintptr_t)runtime_menu_exit_text,
                                   (uintptr_t)(image + text_at + GOW3_MENU_TEXT_LENGTH), image + text_at, &text_original);
+    /* The PC settings page's toggles and sliders: the binding factory's two calls go to a stub
+     * that hands our option sids to the runtime (src/menu_pc_hook.h). */
+    const char *pc_menu = getenv("GOW3_PC_MENU");
+    const int pc_enabled = text && !(pc_menu && pc_menu[0] == '0');
+    const uint64_t factory_at = pc_enabled ? gow3_signature_find(image, size, &gow3_menu_binding_factory) : UINT64_MAX;
+    uint64_t factory_calls[GOW3_MENU_BINDING_CALLS];
+    const unsigned factory_call_count = factory_at == UINT64_MAX ? 0
+        : gow3_menu_find_calls(image, size, factory_at, factory_calls, GOW3_MENU_BINDING_CALLS);
+    const int options = factory_call_count == GOW3_MENU_BINDING_CALLS;
+    if (options) {
+        gow3_menu_build_option_stub(stubs + OPTION_STUB, (uintptr_t)runtime_menu_pc_binding, (uintptr_t)(image + factory_at));
+        runtime_menu_pc_set_factory(image + factory_at);
+    }
     protect(stubs, page_size, 5);
     runtime_menu_exit_set_arena(arena, page_size * ARENA_PAGES);
     const uint64_t confirm_at = gow3_signature_find(image, size, &gow3_menu_confirm_open);
@@ -1031,6 +1047,23 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
            (unsigned long long)load_at, (unsigned long long)click_at,
            label ? "QUIT TO DESKTOP" : "QUIT (text lookup not found)",
            confirm ? "on the game's Yes/No page" : "in an overlay (game's Yes/No page not found)");
+    /* The PC settings page's labels are ours: without the text hook it is left out. Its values
+     * need both factory calls redirected (5-byte calls: only the target changes). */
+    int redirected = 0;
+    for (unsigned i = 0; options && label && i < GOW3_MENU_BINDING_CALLS; ++i) {
+        const int64_t delta = (int64_t)(uintptr_t)(stubs + OPTION_STUB) - (int64_t)(uintptr_t)(image + factory_calls[i] + 5);
+        if (delta < INT32_MIN || delta > INT32_MAX) continue;
+        const int32_t relative = (int32_t)delta;
+        memcpy(image + factory_calls[i] + 1, &relative, 4);
+        ++redirected;
+    }
+    if (!label) puts("Menu: Options > PC SETTINGS unavailable (text lookup not found)");
+    else if (!pc_enabled) puts("Menu: Options > PC SETTINGS off (GOW3_PC_MENU=0)");
+    else if (redirected == GOW3_MENU_BINDING_CALLS)
+        printf("Menu: Options > PC SETTINGS ready (option factory %#llx)\n", (unsigned long long)factory_at);
+    else
+        printf("Menu: Options > PC SETTINGS without values (option factory %s, %u calls, %d redirected)\n",
+               factory_at == UINT64_MAX ? "not found" : "found", factory_call_count, redirected);
 }
 /* G3PATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap

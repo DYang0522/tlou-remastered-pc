@@ -1,6 +1,6 @@
 #include "runtime_menu_exit.h"
 #include "gpu/gow3gpu.h"
-#include "menu_exit_hook.h"
+#include "runtime_menu_pc.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -51,17 +51,19 @@ static const struct { const char *leave_game, *label; } desktop_labels[] = {
     {"Odejít ze hry?", "UKONČIT DO PLOCHY"},
     {"Oyundan çıkılsın mı?", "MASAÜSTÜNE ÇIK"},
 };
-typedef ABI const char *(*TextLookup)(void *table, uint32_t sid);
-static TextLookup text_original;
+static Gow3TextLookup text_original;
 
 void runtime_menu_exit_set_text(void *original) {
-    text_original = (TextLookup)original;
+    text_original = (Gow3TextLookup)original;
     label = GOW3_MENU_LABEL_EXIT_DESKTOP;
 }
 
-/* text(table, LABEL_EXIT_DESKTOP), from the lookup's hook. */
+/* text(table, sid) for sid in [TEXT_FIRST, TEXT_LAST], from the lookup's hook: our labels. */
 ABI const char *runtime_menu_exit_text(void *table, uint32_t sid) {
-    (void)sid;
+    if (sid != GOW3_MENU_LABEL_EXIT_DESKTOP) {
+        const char *text = runtime_menu_pc_text(text_original, table, sid);
+        return text ? text : text_original(table, sid);
+    }
     const char *leave = text_original(table, GOW3_MENU_TEXT_LEAVE_GAME);
     if (leave)
         for (size_t i = 0; i < sizeof(desktop_labels) / sizeof(desktop_labels[0]); ++i)
@@ -80,22 +82,34 @@ static Region *region_of(uintptr_t base) {
     return NULL;
 }
 
+/* The exit button, then the PC settings page (only with our labels: the text hook in). */
+static int patch(unsigned char *data, uint64_t size, unsigned char *space, size_t space_size, size_t *used,
+                 Gow3MenuPatched *exit_done, Gow3MenuPcPatched *pc_done) {
+    *exit_done = gow3_menu_patch(data, size, space, space_size, used, label);
+    *pc_done = (Gow3MenuPcPatched){0, 0};
+    unsigned rows_count = 0;
+    const Gow3PcRow *rows = text_original ? runtime_menu_pc_rows(&rows_count) : NULL;
+    if (rows) *pc_done = gow3_menu_pc_patch(data, size, space, space_size, used, rows, rows_count);
+    return exit_done->lobby || exit_done->pause || pc_done->page || pc_done->button;
+}
+
 ABI void runtime_menu_exit_data_loaded(unsigned char *data) {
     if (!data || !arena || gow3_menu_u32(data) != DATA_MAGIC) return;
     const uint64_t size = gow3_menu_u32(data + 8);
     if (size < DATA_MIN || size > DATA_MAX) return;
     while (atomic_flag_test_and_set(&arena_lock)) {}
     Gow3MenuPatched done = {0, 0};
-    int full = 0;
+    Gow3MenuPcPatched pc = {0, 0};
+    int changed = 0, full = 0;
     Region *region = region_of((uintptr_t)data);
     if (region) {
         size_t used = 0;
-        done = gow3_menu_patch(data, size, arena + region->offset, region->length, &used, label);
+        changed = patch(data, size, arena + region->offset, region->length, &used, &done, &pc);
     }
-    if (!done.lobby && !done.pause) {
+    if (!changed) {
         size_t used = arena_end;
-        done = gow3_menu_patch(data, size, arena, arena_size, &used, label);
-        if (done.lobby || done.pause) {
+        changed = patch(data, size, arena, arena_size, &used, &done, &pc);
+        if (changed) {
             if (!region && region_count < REGIONS) region = &regions[region_count++];
             if (region) *region = (Region){(uintptr_t)data, arena_end, used - arena_end};
             arena_end = used;
@@ -105,6 +119,7 @@ ABI void runtime_menu_exit_data_loaded(unsigned char *data) {
     }
     atomic_flag_clear(&arena_lock);
     if (done.lobby || done.pause) printf("Menu: QUIT button added (lobby lists %u, pause lists %u)\n", done.lobby, done.pause);
+    if (pc.page || pc.button) printf("Menu: PC settings added (page %u, Options lists %u)\n", pc.page, pc.button);
     if (full) puts("Menu: QUIT button memory full, later menu loads go without it");
 }
 
@@ -124,6 +139,7 @@ void runtime_menu_exit_set_confirm(void *open) {
 
 /* Runs on the menu's thread, at the dispatcher's entry: the game's own opener is safe to call. */
 ABI void runtime_menu_exit_button(void *menu, uint32_t hash) {
+    if (runtime_menu_pc_button(hash)) return;
     if (hash == GOW3_MENU_EXIT_LOBBY || hash == GOW3_MENU_EXIT_CONFIRMED) {
         leave();
     } else if (hash == GOW3_MENU_EXIT_PAUSE && confirm_open && menu) {
@@ -136,6 +152,7 @@ ABI void runtime_menu_exit_button(void *menu, uint32_t hash) {
 }
 
 void runtime_menu_exit_tick(void) {
+    runtime_menu_pc_tick();
     if (!atomic_load(&asking)) return;
     const int choice = gow3gpu_choice_poll();
     if (choice == -1) return;
