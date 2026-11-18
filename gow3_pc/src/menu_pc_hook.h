@@ -28,6 +28,7 @@
 #define GOW3_MENU_PAGE_TABLE_TYPE 0xa990a93bu
 #define GOW3_MENU_PAGE_CONTROLS 0x5c717aadu
 #define GOW3_MENU_PAGE_GAMEPLAY 0x8917d4adu
+#define GOW3_MENU_PAGE_CHAPTERS_AREA 0xf48d0867u
 #define GOW3_MENU_BUTTON_OPTIONS_CONTROLS 0x12fccbb5u
 #define GOW3_MENU_BUTTON_OPTIONS_VIDEO 0x5a0f9cefu
 #define GOW3_MENU_BUTTON_OPTIONS_LANGUAGE 0x74ba56e4u
@@ -40,8 +41,14 @@
 #define GOW3_MENU_PC_TITLE 0x3c9e51b3u
 #define GOW3_MENU_PC_ROW 0x3c9e51c0u
 #define GOW3_MENU_PC_ROW_LABEL 0x3c9e51e0u
-/* Option sids (+0x34 of a toggle or slider), not texts. */
+/* The save list page (the save data dialog's list, src/runtime_menu_saves.c): a copy of Chapters'
+ * area page, its list item (the list widget, kind 7) with our int binding; its title is ours. */
+#define GOW3_MENU_SAVES_PAGE 0x3c9e51b4u
+#define GOW3_MENU_SAVES_TITLE 0x3c9e51b5u
+#define GOW3_MENU_SAVES_LIST 0x3c9e51b6u
+/* Option sids (+0x34 of a toggle or slider), not texts; the save list's is the last one. */
 #define GOW3_MENU_PC_OPTION 0x3c9e5200u
+#define GOW3_MENU_SAVES_OPTION (GOW3_MENU_PC_OPTION + GOW3_MENU_PC_MAX_OPTIONS - 1)
 /* Game options whose binding ours copy: Lock at 30 FPS (int, labels Off/On), Sensitivity (float). */
 #define GOW3_MENU_OPTION_LOCK_30 0x9a7ea6e5u
 #define GOW3_MENU_OPTION_SENSITIVITY 0x1abac2d6u
@@ -50,13 +57,13 @@ enum {
     GOW3_MENU_PAGE_TITLE = 0x18, GOW3_MENU_PAGE_LIST = 0x48, GOW3_MENU_MAX_PAGES = 256,
     GOW3_MENU_ITEM_TEXT = 0x20, GOW3_MENU_ITEM_PAGE_NAME = 0x50, GOW3_MENU_ITEM_PAGE = 0x58,
     GOW3_MENU_KIND_HEADER = 0, GOW3_MENU_KIND_SPACER = 1, GOW3_MENU_KIND_TOGGLE = 3, GOW3_MENU_KIND_SLIDER = 5,
-    GOW3_MENU_KIND_COMBO = 6, GOW3_MENU_BINDING_INT = 1, GOW3_MENU_ITEM_PLACE = 0x6c,
+    GOW3_MENU_KIND_COMBO = 6, GOW3_MENU_KIND_LIST = 7, GOW3_MENU_BINDING_INT = 1, GOW3_MENU_ITEM_PLACE = 0x6c,
     GOW3_MENU_ITEM_BINDING = 0x30, GOW3_MENU_ITEM_OPTION = 0x34,
     GOW3_MENU_PC_MAX_ROWS = 32, GOW3_MENU_PC_MAX_OPTIONS = 32,
     GOW3_BINDING_VALUE = 0x10, GOW3_BINDING_MIN = 0x18, GOW3_BINDING_MAX = 0x1c, GOW3_BINDING_LABELS = 0x20,
     GOW3_BINDING_STEPS = 0x18, GOW3_BINDING_FLOAT_MIN = 0x1c, GOW3_BINDING_FLOAT_MID = 0x20,
     GOW3_BINDING_FLOAT_MAX = 0x24,
-    GOW3_BINDING_LABEL_SLOT = 11, GOW3_BINDING_VTABLE_SLOTS = 64
+    GOW3_BINDING_MIN_SLOT = 9, GOW3_BINDING_MAX_SLOT = 10, GOW3_BINDING_LABEL_SLOT = 11, GOW3_BINDING_VTABLE_SLOTS = 64
 };
 _Static_assert(GOW3_MENU_PC_LABEL >= GOW3_MENU_TEXT_FIRST && GOW3_MENU_PC_TITLE <= GOW3_MENU_TEXT_LAST &&
                GOW3_MENU_PC_ROW_LABEL + GOW3_MENU_PC_MAX_ROWS - 1 <= GOW3_MENU_TEXT_LAST,
@@ -69,7 +76,7 @@ _Static_assert(GOW3_MENU_PC_LABEL >= GOW3_MENU_TEXT_FIRST && GOW3_MENU_PC_TITLE 
 typedef enum { GOW3_PC_ROW_HEADER, GOW3_PC_ROW_SPACER, GOW3_PC_ROW_BUTTON, GOW3_PC_ROW_TOGGLE,
                GOW3_PC_ROW_SLIDER, GOW3_PC_ROW_LIST } Gow3PcRowKind;
 typedef struct { Gow3PcRowKind kind; uint32_t label, option; } Gow3PcRow;
-typedef struct { unsigned button, page; } Gow3MenuPcPatched;
+typedef struct { unsigned button, page, saves; } Gow3MenuPcPatched;
 
 static inline unsigned char *gow3_menu_take(unsigned char *arena, size_t arena_size, size_t *used, size_t size) {
     const size_t at = (*used + 15) & ~(size_t)15;
@@ -120,7 +127,7 @@ static inline int gow3_menu_find_item(unsigned char *items, uint64_t count, uint
 static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t size, unsigned char *arena,
                                                    size_t arena_size, size_t *used, const Gow3PcRow *rows,
                                                    unsigned row_count) {
-    Gow3MenuPcPatched done = {0, 0};
+    Gow3MenuPcPatched done = {0, 0, 0};
     const uint64_t first = (uint64_t)(uintptr_t)data;
     if (size < 32 || !row_count || row_count > GOW3_MENU_PC_MAX_ROWS || rows[0].kind != GOW3_PC_ROW_HEADER) return done;
     /* The root entries: {u32 name, u32 type, u64 pointer}, count at +20, table at +24. +24 is a
@@ -143,7 +150,7 @@ static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t
     const int pages_in_data = gow3_menu_inside(first, size, records, page_count * GOW3_MENU_PAGE_SIZE);
     if (!pages_in_data &&
         !gow3_menu_inside((uint64_t)(uintptr_t)arena, arena_size, records, page_count * GOW3_MENU_PAGE_SIZE)) return done;
-    const unsigned char *model_page = NULL, *gameplay_page = NULL;
+    const unsigned char *model_page = NULL, *gameplay_page = NULL, *chapters_page = NULL;
     int have_page = 0;
     for (uint64_t i = 0; i < page_count; ++i) {
         const unsigned char *record = (const unsigned char *)(uintptr_t)records + i * GOW3_MENU_PAGE_SIZE;
@@ -151,6 +158,7 @@ static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t
         if (hash == GOW3_MENU_PC_PAGE) have_page = 1;
         if (hash == GOW3_MENU_PAGE_CONTROLS) model_page = record;
         if (hash == GOW3_MENU_PAGE_GAMEPLAY) gameplay_page = record;
+        if (hash == GOW3_MENU_PAGE_CHAPTERS_AREA) chapters_page = record;
     }
     if (!model_page) return done;
     unsigned char *controls = NULL;
@@ -169,16 +177,28 @@ static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t
     const int combo = gameplay_count ? gow3_menu_find_item(gameplay, gameplay_count, 0, GOW3_MENU_KIND_COMBO) : -1;
     const unsigned char *list_model = combo >= 0 ? gameplay + (size_t)combo * GOW3_MENU_ITEM_SIZE
                                                  : controls + (size_t)toggle * GOW3_MENU_ITEM_SIZE;
+    /* The save list's model: Chapters' area list (one list item), when there is one. */
+    unsigned char *chapters = NULL;
+    const uint64_t chapters_count =
+        chapters_page ? gow3_menu_list(data, size, gow3_menu_u64(chapters_page + GOW3_MENU_PAGE_LIST), &chapters) : 0;
+    const int chapters_list = chapters_count ? gow3_menu_find_item(chapters, chapters_count, 0, GOW3_MENU_KIND_LIST) : -1;
+    const int saves = chapters_list >= 0;
 
     if (!have_page) {
         const size_t start = *used;
         unsigned char *items = gow3_menu_take(arena, arena_size, used, (size_t)row_count * GOW3_MENU_ITEM_SIZE);
         unsigned char *entry = gow3_menu_take(arena, arena_size, used, GOW3_MENU_ENTRY_SIZE);
-        unsigned char *copy = gow3_menu_take(arena, arena_size, used, (size_t)(page_count + 1) * GOW3_MENU_PAGE_SIZE);
+        unsigned char *copy = gow3_menu_take(arena, arena_size, used, (size_t)(page_count + 1 + saves) * GOW3_MENU_PAGE_SIZE);
+        unsigned char *save_item = saves ? gow3_menu_take(arena, arena_size, used, GOW3_MENU_ITEM_SIZE) : NULL;
+        unsigned char *save_entry = saves ? gow3_menu_take(arena, arena_size, used, GOW3_MENU_ENTRY_SIZE) : NULL;
+        const uint64_t save_name = saves ? gow3_menu_string(arena, arena_size, used, "PAGE_PC_SAVES") : 0;
+        const uint64_t save_title = saves ? gow3_menu_string(arena, arena_size, used, "MENU_TITLE_PC_SAVES") : 0;
+        const uint64_t save_list_name = saves ? gow3_menu_string(arena, arena_size, used, "LIST_PC_SAVES") : 0;
         const uint64_t name = gow3_menu_string(arena, arena_size, used, "PAGE_PC_SETTINGS");
         const uint64_t title = gow3_menu_string(arena, arena_size, used, "MENU_TITLE_PC_SETTINGS");
         const uint64_t row_name = gow3_menu_string(arena, arena_size, used, "BUTTON_PC_SETTING");
-        if (!items || !entry || !copy || !name || !title || !row_name) {
+        if (!items || !entry || !copy || !name || !title || !row_name ||
+            (saves && (!save_item || !save_entry || !save_name || !save_title || !save_list_name))) {
             *used = start;
             return done;
         }
@@ -222,7 +242,28 @@ static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t
         gow3_menu_put64(page + GOW3_MENU_PAGE_TITLE_TEXT, title);
         gow3_menu_put32(page + GOW3_MENU_PAGE_TITLE, GOW3_MENU_PC_TITLE);
         gow3_menu_put64(page + GOW3_MENU_PAGE_LIST, (uint64_t)(uintptr_t)entry);
-        gow3_menu_put64(pages_entry, page_count + 1);
+        if (saves) {
+            /* The list widget with our int binding: the value is the chosen row; a press sends
+             * the item's hash to the dispatcher, as Chapters' list does. */
+            memcpy(save_item, chapters + (size_t)chapters_list * GOW3_MENU_ITEM_SIZE, GOW3_MENU_ITEM_SIZE);
+            gow3_menu_put64(save_item, save_list_name);
+            gow3_menu_put32(save_item + GOW3_MENU_ITEM_HASH, GOW3_MENU_SAVES_LIST);
+            gow3_menu_put32(save_item + GOW3_MENU_ITEM_BINDING, GOW3_MENU_BINDING_INT);
+            gow3_menu_put32(save_item + GOW3_MENU_ITEM_OPTION, GOW3_MENU_SAVES_OPTION);
+            memcpy(save_entry, (const unsigned char *)(uintptr_t)gow3_menu_u64(chapters_page + GOW3_MENU_PAGE_LIST),
+                   GOW3_MENU_ENTRY_SIZE);
+            gow3_menu_put64(save_entry, 1);
+            gow3_menu_put64(save_entry + 8, (uint64_t)(uintptr_t)save_item);
+            unsigned char *save_page = page + GOW3_MENU_PAGE_SIZE;
+            memcpy(save_page, chapters_page, GOW3_MENU_PAGE_SIZE);
+            gow3_menu_put64(save_page, save_name);
+            gow3_menu_put32(save_page + GOW3_MENU_PAGE_HASH, GOW3_MENU_SAVES_PAGE);
+            gow3_menu_put64(save_page + GOW3_MENU_PAGE_TITLE_TEXT, save_title);
+            gow3_menu_put32(save_page + GOW3_MENU_PAGE_TITLE, GOW3_MENU_SAVES_TITLE);
+            gow3_menu_put64(save_page + GOW3_MENU_PAGE_LIST, (uint64_t)(uintptr_t)save_entry);
+            done.saves = 1;
+        }
+        gow3_menu_put64(pages_entry, page_count + 1 + saves);
         gow3_menu_put64(pages_entry + 8, (uint64_t)(uintptr_t)copy);
         done.page = 1;
     }
@@ -270,6 +311,24 @@ static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t
 static const Gow3Signature gow3_menu_binding_factory = {
     "55 48 89 e5 41 57 41 56 41 55 41 54 53 50 45 31 ed 45 89 ce 45 89 c7 41 89 cc 48 89 fb 89 f0 83 fe 34 0f 87", 0};
 enum { GOW3_MENU_BINDING_CALLS = 2, GOW3_MENU_OPTION_STUB_SIZE = 40 };
+/* Page navigation (update 1.11): open(menu, page hash, 0, 0) at 0x30e8b0 finds the page among the
+ * menu's built pages (menu+0x3a0, 150 slots, hash at +0x10) and shows it; back(menu, 0) at
+ * 0x30fcc0 returns to the previous one (the Yes/No page's No). The shown pages are a stack:
+ * menu+0x878[menu+0xd28] is the top one. */
+static const Gow3Signature gow3_menu_page_open = {
+    "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 81 ec e8 02 00 00 41 89 cd 41 89 d4 49 89 ff 31 c0 90", 0};
+static const Gow3Signature gow3_menu_page_back = {
+    "55 48 89 e5 41 57 41 56 53 48 83 ec 58 48 89 fb 48 8b 4b 08 85 c9 74 6b c5 fa 10 83 54 0d 00 00", 0};
+enum { GOW3_MENU_PAGE_STACK = 0x878, GOW3_MENU_PAGE_TOP = 0xd28, GOW3_MENU_PAGE_STACK_SIZE = 32,
+       GOW3_MENU_PAGE_OBJECT_HASH = 0x10 };
+/* The menu's per-frame update (update 1.11: 0x313330, update(menu, ...), called once a frame by
+ * the main loop; the dispatcher runs inside it). The save data dialog opens on the save system's
+ * own thread: the save list page is opened from here, at the next frame. Its entry is hooked
+ * like the dispatcher's (gow3_menu_build_click_stub: helper(menu, esi), then the 6 bytes). */
+static const Gow3Signature gow3_menu_update_site = {
+    "55 48 89 e5 41 57 41 56 41 55 41 54 53 48 83 ec 28 49 89 fd 48 8d 0d ?? ?? ?? ?? 4c 8d 25 ?? ?? ?? ?? "
+    "49 89 d7 48 8d 15 ?? ?? ?? ?? bf eb ce ff 74", 0};
+enum { GOW3_MENU_UPDATE_LENGTH = 6 };
 
 /* The calls (e8 rel32) to `target` in code[0, size), at most `max`; returns how many there are. */
 static inline unsigned gow3_menu_find_calls(const unsigned char *code, uint64_t size, uint64_t target,

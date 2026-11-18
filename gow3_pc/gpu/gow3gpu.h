@@ -115,6 +115,10 @@ const char *gow3gpu_pc_setting_choice(int setting, int index);
 void gow3gpu_pc_setting_set(int setting, int value);
 void gow3gpu_pc_settings_save(void);
 void gow3gpu_settings_menu_open(void);
+/* The game's own save list page (src/runtime_menu_saves.c): the rows' pictures (PNG paths, NULL:
+ * none; decoded here), then the row whose picture shows (-1: none), from any thread. */
+void gow3gpu_preview_begin(const char *const *images, int count);
+void gow3gpu_preview_show(int index);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned gow3gpu_symbol_count(void);
 #ifdef __cplusplus

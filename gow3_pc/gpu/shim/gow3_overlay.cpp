@@ -166,6 +166,14 @@ std::atomic<int> choice_result{-1}; // -1 open, -2 cancelled, else the chosen in
 std::vector<Gow3Png::Image> choice_pictures;
 std::vector<ImTextureData*> choice_textures, choice_retired;
 
+// The game's own save list page (src/runtime_menu_saves.c): the pictures of its rows, made
+// textures before the next frame, and the one shown (-1: none) where the game's Chapters page
+// shows its picture. Guarded by imgui_mutex but preview_index (any thread).
+std::vector<Gow3Png::Image> preview_pictures;
+std::vector<ImTextureData*> preview_textures;
+bool preview_pending = false;
+std::atomic<int> preview_index{-1};
+
 // Trophy popups (ShowTrophy) and the Trophies tab's pictures, guarded by imgui_mutex. A picture
 // becomes a texture before the next frame (UpdateTrophyTextures); retired ones are freed there.
 struct TrophyPopupItem {
@@ -1756,6 +1764,44 @@ void UpdateTrophyTextures() {
 }
 
 // imgui_mutex held, before NewFrame: new pictures become textures, destroyed ones are freed.
+void UpdatePreviewTextures() {
+    if (!preview_pending) {
+        return;
+    }
+    preview_pending = false;
+    for (ImTextureData* tex : preview_textures) {
+        if (tex) {
+            tex->WantDestroyNextFrame = true;
+            choice_retired.push_back(tex); // freed with the save list's
+        }
+    }
+    preview_textures.clear();
+    for (const Gow3Png::Image& picture : preview_pictures) {
+        preview_textures.push_back(NewTexture(picture));
+    }
+    preview_pictures.clear();
+}
+
+// The shown row's picture, under the texts of the panel beside the list (1080p: 773,320 to
+// 1442,697, the Chapters picture's size), its aspect kept.
+void DrawPreview(vk::Extent2D extent) {
+    const int index = preview_index;
+    if (index < 0 || index >= int(preview_textures.size()) || !preview_textures[index]) {
+        return;
+    }
+    ImTextureData* tex = preview_textures[index];
+    const float sx = float(extent.width) / 1920.0f, sy = float(extent.height) / 1080.0f;
+    const float bx0 = 773.0f * sx, by0 = 320.0f * sy, bw = 669.0f * sx, bh = 377.0f * sy;
+    const float aspect = tex->Height ? float(tex->Width) / float(tex->Height) : 1.0f;
+    float w = bw, h = bw / aspect;
+    if (h > bh) {
+        h = bh;
+        w = bh * aspect;
+    }
+    const ImVec2 min(bx0 + (bw - w) * 0.5f, by0 + (bh - h) * 0.5f), max(min.x + w, min.y + h);
+    ImGui::GetBackgroundDrawList()->AddImage(tex->GetTexRef(), min, max);
+}
+
 void UpdateChoiceTextures() {
     if (!choice_pictures.empty()) {
         choice_textures.assign(choice_pictures.size(), nullptr);
@@ -1958,7 +2004,8 @@ void SetLoading(bool active, u32 done, u32 total) {
 bool Visible() {
     const auto& s = Gow3Settings::Get();
     // open_requested: the next Render opens the menu, also when nothing else is drawn.
-    return initialized && (loading || background_total || menu_open || open_requested || text_entry_active || choice_active ||
+    return initialized && (loading || background_total || menu_open || open_requested || preview_index >= 0 ||
+                           text_entry_active || choice_active ||
                            choice_retiring || s.show_fps || trophy_showing);
 }
 
@@ -1968,6 +2015,17 @@ bool CapturesInput() {
 
 void RequestOpen() {
     open_requested = true;
+}
+
+void SetPreviewPictures(std::vector<Gow3Png::Image> pictures) {
+    std::scoped_lock lock{imgui_mutex};
+    preview_pictures = std::move(pictures);
+    preview_pending = true;
+    preview_index = -1;
+}
+
+void ShowPreview(int index) {
+    preview_index = index;
 }
 
 void BeginChoice(const std::string& title, const std::vector<std::string>& items,
@@ -2076,12 +2134,14 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     }
 
     UpdateChoiceTextures();
+    UpdatePreviewTextures();
     UpdateTrophyTextures();
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
     if (loading) {
         LoadingScreen();
     }
+    DrawPreview(extent);
     if (menu_open) {
         Menu();
     }

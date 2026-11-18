@@ -20,6 +20,10 @@ int runtime_menu_pc_button(uint32_t hash);
 void runtime_menu_pc_set_factory(void *original);
 ABI void *runtime_menu_pc_binding(void *menu, uint32_t kind, uint32_t a, uint32_t sid, uint32_t b, uint32_t c,
                                   uint32_t d);
+/* "New save" in the language of the last text table seen. */
+const char *runtime_menu_pc_new_save_text(void);
+/* A text of the game in the language of the last text table seen (NULL before one or if none). */
+const char *runtime_menu_pc_game_text(uint32_t sid);
 /* From the pad's sampling: values changed in the page are applied and saved. */
 void runtime_menu_pc_tick(void);
 #endif

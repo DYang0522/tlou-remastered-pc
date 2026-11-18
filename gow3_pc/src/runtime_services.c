@@ -8,6 +8,7 @@
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "gpu/gow3gpu.h"
+#include "runtime_menu_saves.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -537,8 +538,10 @@ static struct {
     void *user_data;
     char dirs[32][32];
     int dir_count, has_new, choosing;
+    int shown; /* rows in save_labels and save_icons ("" = no picture) */
+    const char *title;
 } save_dialog;
-static char save_labels[33][200], save_icons[33][720];
+static char save_labels[33][200], save_icons[33][720], save_rows[33][160], save_chapters[33][128];
 static void save_label(char *out, size_t size, const char *dir) {
     unsigned char param[RUNTIME_SAVE_PARAM_SIZE];
     if (runtime_savedata_param(USER_ID,dir,param)) { snprintf(out,size,"%s",dir); return; }
@@ -553,6 +556,30 @@ static void save_label(char *out, size_t size, const char *dir) {
     const char *title=(const char *)param, *subtitle=(const char *)param+128;
     /* Title, subtitle and date on their own lines, beside the save's picture. */
     snprintf(out,size,"%.60s\n%.60s%s%s",title[0] ? title : dir,subtitle,subtitle[0] ? "\n" : "",when);
+}
+/* One line for the game's own list page: the subtitle ("Save Game 7") and the date. */
+static void save_row(char *out, size_t size, const char *dir) {
+    unsigned char param[RUNTIME_SAVE_PARAM_SIZE];
+    if (runtime_savedata_param(USER_ID,dir,param)) { snprintf(out,size,"%s",dir); return; }
+    int64_t mtime; memcpy(&mtime,param+1288,8);
+    time_t t=(time_t)mtime; struct tm tm;
+#ifdef _WIN32
+    localtime_s(&tm,&t);
+#else
+    localtime_r(&t,&tm);
+#endif
+    char when[32]; strftime(when,sizeof(when),"%Y-%m-%d %H:%M",&tm);
+    const char *title=(const char *)param, *subtitle=(const char *)param+128;
+    snprintf(out,size,"%.60s - %s",subtitle[0] ? subtitle : title[0] ? title : dir,when);
+}
+/* The chapter a save was made in: the first line of its detail ("Sewers" in the game's language). */
+static void save_chapter(char *out, size_t size, const char *dir) {
+    unsigned char param[RUNTIME_SAVE_PARAM_SIZE];
+    out[0]=0;
+    if (runtime_savedata_param(USER_ID,dir,param)) return;
+    const char *detail=(const char *)param+256;
+    size_t n=0; while (n<size-1 && n<1024 && detail[n] && detail[n]!='\n') ++n;
+    memcpy(out,detail,n); out[n]=0;
 }
 static ABI int32_t save_init(void) { return dialog_init(2); }
 static ABI int32_t save_open(const unsigned char *p) {
@@ -570,15 +597,28 @@ static ABI int32_t save_open(const unsigned char *p) {
         save_dialog.has_new=new_item!=NULL;
     }
     if (save_dialog.mode!=SAVE_MODE_LIST) return dialog_open_mode(2,p,52,5);
-    const char *labels[33], *icons[33]; int n=0;
-    if (save_dialog.has_new) { snprintf(save_labels[n],sizeof(save_labels[n]),"New save"); labels[n]=save_labels[n]; icons[n]=NULL; ++n; }
+    const char *labels[33], *rows[33], *icons[33], *chapters[33]; int n=0;
+    if (save_dialog.has_new) {
+        snprintf(save_labels[n],sizeof(save_labels[n]),"New save"); labels[n]=save_labels[n]; rows[n]=save_labels[n]; icons[n]=NULL; save_icons[n][0]=0; chapters[n]=""; ++n;
+    }
     for (int i=0;i<save_dialog.dir_count;++i) {
         save_label(save_labels[n],sizeof(save_labels[n]),save_dialog.dirs[i]); labels[n]=save_labels[n];
+        save_row(save_rows[n],sizeof(save_rows[n]),save_dialog.dirs[i]); rows[n]=save_rows[n];
+        save_chapter(save_chapters[n],sizeof(save_chapters[n]),save_dialog.dirs[i]); chapters[n]=save_chapters[n];
         icons[n]=runtime_savedata_icon(USER_ID,save_dialog.dirs[i],save_icons[n],sizeof(save_icons[n])) ? NULL : save_icons[n];
+        if (!icons[n]) save_icons[n][0]=0;
         ++n;
     }
     uint32_t type; memcpy(&type,p+56,4);
     const char *title=type==1 ? "Save game" : type==2 ? "Load game" : "Delete save";
+    /* The game's own menu page when it can show it (src/runtime_menu_saves.c), else the overlay. */
+    save_dialog.shown=n; save_dialog.title=title;
+    if (n && runtime_menu_saves_open((int)type,n,save_dialog.has_new,rows,icons,chapters)) {
+        printf("Runtime: SaveDataDialog list (%s): %d entries on the game's menu page\n",title,n);
+        save_dialog.choosing=2;
+        dialogs[2].status=DIALOG_RUNNING;
+        return 0;
+    }
     if (!n || !gow3gpu_choice_begin(title,labels,icons,n,0)) {
         printf("Runtime: SaveDataDialog list (%s): %s\n",title,n ? "no window, cancelled" : "no saves, cancelled");
         save_dialog.result=SAVE_RESULT_CANCELED;
@@ -592,7 +632,14 @@ static ABI int32_t save_open(const unsigned char *p) {
 }
 static ABI int32_t save_status(void) {
     if (save_dialog.choosing) {
-        int choice=gow3gpu_choice_poll();
+        int choice=save_dialog.choosing==2 ? runtime_menu_saves_poll() : gow3gpu_choice_poll();
+        if (choice==-3) {
+            /* The game's menu did not show its page: the overlay list, as before. */
+            const char *labels[33], *icons[33];
+            for (int i=0;i<save_dialog.shown;++i) { labels[i]=save_labels[i]; icons[i]=save_icons[i][0] ? save_icons[i] : NULL; }
+            if (gow3gpu_choice_begin(save_dialog.title,labels,icons,save_dialog.shown,0)) { save_dialog.choosing=1; return dialog_status(2); }
+            choice=-2;
+        }
         if (choice!=-1) {
             save_dialog.choosing=0;
             dialogs[2].status=DIALOG_FINISHED;

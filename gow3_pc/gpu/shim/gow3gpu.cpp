@@ -623,6 +623,20 @@ extern "C" int gow3gpu_overlay_captures_input(void) {
     return Gow3Overlay::CapturesInput() ? 1 : 0;
 }
 
+extern "C" void gow3gpu_preview_begin(const char* const* images, int count) {
+    std::vector<Gow3Png::Image> pictures(std::max(count, 0));
+    for (int i = 0; images && i < count; ++i) {
+        if (images[i] && !Gow3Png::LoadRgba(images[i], pictures[i])) {
+            LOG_WARNING(Lib_SaveDataDialog, "save list: no picture from {}", images[i]);
+        }
+    }
+    Gow3Overlay::SetPreviewPictures(std::move(pictures));
+}
+
+extern "C" void gow3gpu_preview_show(int index) {
+    Gow3Overlay::ShowPreview(index);
+}
+
 extern "C" void gow3gpu_settings_menu_open(void) {
     Gow3Overlay::RequestOpen();
 }

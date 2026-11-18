@@ -12,6 +12,7 @@
 #include "menu_exit_hook.h"
 #include "runtime_menu_exit.h"
 #include "runtime_menu_pc.h"
+#include "runtime_menu_saves.h"
 #include "cheat_hook.h"
 #include "actor_hook.h"
 #include "damage_hook.h"
@@ -1000,7 +1001,8 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
     }
     /* The arena: the exit button's lists and the PC settings page (src/menu_pc_hook.h: the page
      * table is copied, ~14 KiB per menu data load). */
-    enum { CLICK_STUB = 512, TEXT_STUB = 1024, OPTION_STUB = 1536, ARENA_PAGES = 64 };
+    enum { CLICK_STUB = 512, TEXT_STUB = 1024, OPTION_STUB = 1536, UPDATE_STUB = 2048, ARENA_PAGES = 64 };
+    uint64_t update_at = UINT64_MAX;
     unsigned char *stubs = allocate_near_image(size);
     unsigned char *arena = allocate(page_size * ARENA_PAGES);
     if (!stubs || !arena) {
@@ -1030,6 +1032,17 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
     if (options) {
         gow3_menu_build_option_stub(stubs + OPTION_STUB, (uintptr_t)runtime_menu_pc_binding, (uintptr_t)(image + factory_at));
         runtime_menu_pc_set_factory(image + factory_at);
+        /* The save list page (src/runtime_menu_saves.c) opens and closes with the game's own
+         * page navigation. */
+        const uint64_t open_at = gow3_signature_find(image, size, &gow3_menu_page_open);
+        const uint64_t back_at = gow3_signature_find(image, size, &gow3_menu_page_back);
+        if (open_at != UINT64_MAX && back_at != UINT64_MAX) runtime_menu_saves_set_navigation(image + open_at, image + back_at);
+        update_at = gow3_signature_find(image, size, &gow3_menu_update_site);
+        if (update_at != UINT64_MAX && mapped(segments, count, update_at, GOW3_MENU_UPDATE_LENGTH))
+            gow3_menu_build_click_stub(stubs + UPDATE_STUB, (uintptr_t)runtime_menu_saves_update,
+                                       (uintptr_t)(image + update_at + GOW3_MENU_UPDATE_LENGTH), image + update_at);
+        else
+            update_at = UINT64_MAX;
     }
     protect(stubs, page_size, 5);
     runtime_menu_exit_set_arena(arena, page_size * ARENA_PAGES);
@@ -1064,6 +1077,11 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
     else
         printf("Menu: Options > PC SETTINGS without values (option factory %s, %u calls, %d redirected)\n",
                factory_at == UINT64_MAX ? "not found" : "found", factory_call_count, redirected);
+    /* The save list page opens from the menu's own update (src/runtime_menu_saves.c). */
+    const int update = redirected == GOW3_MENU_BINDING_CALLS && update_at != UINT64_MAX &&
+                       install_jump(update_at, GOW3_MENU_UPDATE_LENGTH, stubs + UPDATE_STUB);
+    if (update) runtime_menu_saves_set_update_hooked();
+    printf("Menu: save list page %s\n", update ? "ready (opened from the menu update)" : "unavailable (menu update not found)");
 }
 /* G3PATCH2 (patches.py): the patches' image base, then byte writes at image offsets, applied
  * after relocation. A write may replace a whole base-relative pointer slot (60/90 FPS++ swap

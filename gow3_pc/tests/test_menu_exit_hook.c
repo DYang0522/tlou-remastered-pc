@@ -30,7 +30,7 @@ static uint32_t hash_at(uint64_t list, unsigned index) {
  * the page table, two pages (Options, Controls), the Controls items and the Options list. */
 enum { PC_SIZE = 0x3000, PC_ROOTS = 0x40, PC_PAGES = 0x80, PC_RECORDS = 0x100, PC_CONTROLS_ENTRY = 0x400,
        PC_CONTROLS = 0x500, PC_OPTIONS_ENTRY = 0x800, PC_OPTIONS = 0x900, PC_GAMEPLAY_ENTRY = 0xc00,
-       PC_GAMEPLAY = 0xd00 };
+       PC_GAMEPLAY = 0xd00, PC_CHAPTERS_ENTRY = 0xe00, PC_CHAPTERS = 0xe40 };
 static _Alignas(16) unsigned char pc[PC_SIZE];
 static _Alignas(16) unsigned char pc_arena[0x2000];
 static void pc_put32(uint64_t at, uint32_t v) { memcpy(pc + at, &v, 4); }
@@ -53,7 +53,7 @@ static void test_pc_page(void) {
     pc_put32(PC_ROOTS, GOW3_MENU_PAGE_TABLE_NAME);
     pc_put32(PC_ROOTS + 4, GOW3_MENU_PAGE_TABLE_TYPE);
     pc_put64(PC_ROOTS + 8, base + PC_PAGES);
-    pc_put64(PC_PAGES, 3);
+    pc_put64(PC_PAGES, 4);
     pc_put64(PC_PAGES + 8, base + PC_RECORDS);
     pc_put32(PC_RECORDS + GOW3_MENU_PAGE_HASH, 0xc7597732u);
     pc_put64(PC_RECORDS + GOW3_MENU_PAGE_LIST, base + PC_OPTIONS_ENTRY);
@@ -71,6 +71,13 @@ static void test_pc_page(void) {
     pc_put32(PC_CONTROLS + 4 * GOW3_MENU_ITEM_SIZE + GOW3_MENU_ITEM_PLACE, 0xffffffffu);
     pc_put32(PC_CONTROLS + 4 * GOW3_MENU_ITEM_SIZE + GOW3_MENU_ITEM_KIND + 4, 2);
     pc_entry(PC_GAMEPLAY_ENTRY, 1, PC_GAMEPLAY);
+    const uint64_t chapters_page = PC_RECORDS + 3 * GOW3_MENU_PAGE_SIZE;
+    pc_put32(chapters_page + GOW3_MENU_PAGE_HASH, GOW3_MENU_PAGE_CHAPTERS_AREA);
+    pc_put32(chapters_page + 0x40, 0x12345678u);
+    pc_put64(chapters_page + GOW3_MENU_PAGE_LIST, base + PC_CHAPTERS_ENTRY);
+    pc_item(PC_CHAPTERS, 0, 0x1e5deb0eu, GOW3_MENU_KIND_LIST);
+    pc_put32(PC_CHAPTERS + GOW3_MENU_ITEM_BINDING, 0x11);
+    pc_entry(PC_CHAPTERS_ENTRY, 1, PC_CHAPTERS);
     pc_item(PC_CONTROLS, 0, 0x44dbc3b6u, GOW3_MENU_KIND_HEADER);
     pc_item(PC_CONTROLS, 1, 0, 5);
     pc_item(PC_CONTROLS, 2, 0, GOW3_MENU_KIND_SPACER);
@@ -99,14 +106,26 @@ static void test_pc_page(void) {
     };
     size_t used = 0;
     Gow3MenuPcPatched done = gow3_menu_pc_patch(pc, PC_SIZE, pc_arena, sizeof(pc_arena), &used, rows, 7);
-    assert(done.page == 1 && done.button == 1 && used);
+    assert(done.page == 1 && done.button == 1 && done.saves == 1 && used);
 
     /* The page table: the file's records copied, ours appended (a copy of Controls). */
-    assert(gow3_menu_u64(pc + PC_PAGES) == 4);
+    assert(gow3_menu_u64(pc + PC_PAGES) == 6);
     const unsigned char *records = (const unsigned char *)(uintptr_t)gow3_menu_u64(pc + PC_PAGES + 8);
     assert(records >= pc_arena && (uintptr_t)records % 16 == 0);
     assert(gow3_menu_u32(records + GOW3_MENU_PAGE_SIZE + GOW3_MENU_PAGE_HASH) == GOW3_MENU_PAGE_CONTROLS);
-    const unsigned char *page = records + 3 * GOW3_MENU_PAGE_SIZE;
+    const unsigned char *page = records + 4 * GOW3_MENU_PAGE_SIZE;
+    /* The save list page: Chapters' area page with our title and one list item, our int binding. */
+    const unsigned char *save_page = records + 5 * GOW3_MENU_PAGE_SIZE;
+    assert(gow3_menu_u32(save_page + GOW3_MENU_PAGE_HASH) == GOW3_MENU_SAVES_PAGE);
+    assert(gow3_menu_u32(save_page + GOW3_MENU_PAGE_TITLE) == GOW3_MENU_SAVES_TITLE);
+    assert(gow3_menu_u32(save_page + 0x40) == 0x12345678u);
+    const unsigned char *save_entry = (const unsigned char *)(uintptr_t)gow3_menu_u64(save_page + GOW3_MENU_PAGE_LIST);
+    assert(gow3_menu_u64(save_entry) == 1);
+    const unsigned char *save_item = (const unsigned char *)(uintptr_t)gow3_menu_u64(save_entry + 8);
+    assert(gow3_menu_u32(save_item + GOW3_MENU_ITEM_KIND) == GOW3_MENU_KIND_LIST);
+    assert(gow3_menu_u32(save_item + GOW3_MENU_ITEM_HASH) == GOW3_MENU_SAVES_LIST);
+    assert(gow3_menu_u32(save_item + GOW3_MENU_ITEM_BINDING) == GOW3_MENU_BINDING_INT);
+    assert(gow3_menu_u32(save_item + GOW3_MENU_ITEM_OPTION) == GOW3_MENU_SAVES_OPTION);
     assert(gow3_menu_u32(page + GOW3_MENU_PAGE_HASH) == GOW3_MENU_PC_PAGE);
     assert(gow3_menu_u32(page + GOW3_MENU_PAGE_TITLE) == GOW3_MENU_PC_TITLE);
     assert(gow3_menu_u32(page + 0x98) == 0x99e55e57u);
@@ -158,13 +177,13 @@ static void test_pc_page(void) {
     assert(!done.page && !done.button && used == before);
 
     /* Fresh data without room: nothing changes, nothing taken. */
-    pc_put64(PC_PAGES, 3);
+    pc_put64(PC_PAGES, 4);
     pc_put64(PC_PAGES + 8, base + PC_RECORDS);
     pc_entry(PC_OPTIONS_ENTRY, 5, PC_OPTIONS);
     used = sizeof(pc_arena) - 64;
     done = gow3_menu_pc_patch(pc, PC_SIZE, pc_arena, sizeof(pc_arena), &used, rows, 7);
     assert(!done.page && !done.button && used == sizeof(pc_arena) - 64);
-    assert(gow3_menu_u64(pc + PC_PAGES) == 3 && gow3_menu_u64(pc + PC_OPTIONS_ENTRY) == 5);
+    assert(gow3_menu_u64(pc + PC_PAGES) == 4 && gow3_menu_u64(pc + PC_OPTIONS_ENTRY) == 5);
 
     /* Without the Controls page there is no model: nothing is added. */
     pc_put32(controls_page + GOW3_MENU_PAGE_HASH, 0x12345678u);

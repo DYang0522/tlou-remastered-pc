@@ -1,6 +1,7 @@
 #include "runtime_menu_exit.h"
 #include "gpu/gow3gpu.h"
 #include "runtime_menu_pc.h"
+#include "runtime_menu_saves.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -86,7 +87,7 @@ static Region *region_of(uintptr_t base) {
 static int patch(unsigned char *data, uint64_t size, unsigned char *space, size_t space_size, size_t *used,
                  Gow3MenuPatched *exit_done, Gow3MenuPcPatched *pc_done) {
     *exit_done = gow3_menu_patch(data, size, space, space_size, used, label);
-    *pc_done = (Gow3MenuPcPatched){0, 0};
+    *pc_done = (Gow3MenuPcPatched){0, 0, 0};
     unsigned rows_count = 0;
     const Gow3PcRow *rows = text_original ? runtime_menu_pc_rows(&rows_count) : NULL;
     if (rows) *pc_done = gow3_menu_pc_patch(data, size, space, space_size, used, rows, rows_count);
@@ -99,7 +100,7 @@ ABI void runtime_menu_exit_data_loaded(unsigned char *data) {
     if (size < DATA_MIN || size > DATA_MAX) return;
     while (atomic_flag_test_and_set(&arena_lock)) {}
     Gow3MenuPatched done = {0, 0};
-    Gow3MenuPcPatched pc = {0, 0};
+    Gow3MenuPcPatched pc = {0, 0, 0};
     int changed = 0, full = 0;
     Region *region = region_of((uintptr_t)data);
     if (region) {
@@ -119,7 +120,9 @@ ABI void runtime_menu_exit_data_loaded(unsigned char *data) {
     }
     atomic_flag_clear(&arena_lock);
     if (done.lobby || done.pause) printf("Menu: QUIT button added (lobby lists %u, pause lists %u)\n", done.lobby, done.pause);
-    if (pc.page || pc.button) printf("Menu: PC settings added (page %u, Options lists %u)\n", pc.page, pc.button);
+    if (pc.page || pc.button)
+        printf("Menu: PC settings added (page %u, Options lists %u, save list page %u)\n", pc.page, pc.button, pc.saves);
+    if (pc.saves) runtime_menu_saves_page_added();
     if (full) puts("Menu: QUIT button memory full, later menu loads go without it");
 }
 
@@ -139,7 +142,7 @@ void runtime_menu_exit_set_confirm(void *open) {
 
 /* Runs on the menu's thread, at the dispatcher's entry: the game's own opener is safe to call. */
 ABI void runtime_menu_exit_button(void *menu, uint32_t hash) {
-    if (runtime_menu_pc_button(hash)) return;
+    if (runtime_menu_saves_button(menu, hash) || runtime_menu_pc_button(hash)) return;
     if (hash == GOW3_MENU_EXIT_LOBBY || hash == GOW3_MENU_EXIT_CONFIRMED) {
         leave();
     } else if (hash == GOW3_MENU_EXIT_PAUSE && confirm_open && menu) {
