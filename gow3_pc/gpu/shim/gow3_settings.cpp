@@ -113,7 +113,9 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         return;
     }
     if (key == "menu_shortcut") {
-        v.menu_shortcut = value == "view_menu" ? 1 : value == "keyboard" ? 2 : value == "custom" ? 3 : 0;
+        // "lt_r3" was the default until 18 Nov and every settings file has it: the keyboard key
+        // alone now (LT + R3 again under its new name, lt_rs).
+        v.menu_shortcut = value == "lt_rs" ? 0 : value == "view_menu" ? 1 : value == "custom" ? 3 : 2;
         return;
     }
     const char* cheat_keys[] = {"cheat_health", "cheat_magic", "cheat_item", "cheat_rage", "cheat_orbs",
@@ -448,7 +450,7 @@ KeyValues Current() {
     // Read by run.sh at start.
     Append(text, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");
-    static const char* const shortcuts[] = {"lt_r3", "view_menu", "keyboard", "custom"};
+    static const char* const shortcuts[] = {"lt_rs", "view_menu", "keyboard", "custom"};
     Append(text, "menu_shortcut=%s\n", shortcuts[std::clamp(v.menu_shortcut.load(), 0, 3)]);
     Append(text, "fade_distance=%d\nsun_shadow_distance=%d\nlight_shadow_distance=%d\n", v.fade_distance.load(),
            v.sun_shadow_distance.load(), v.light_shadow_distance.load());

@@ -37,8 +37,27 @@ UPSCALERS = {"off": "off", "FSR 3": "fsr3", "TAA": "taa", "DLSS": "dlss"}
 PRESETS = {"q_native": "0", "q_quality": "1", "q_balanced": "2", "q_performance": "3", "q_ultra": "4"}
 # The size the game draws at (output_res in tlou.ini; tools/probe_tlou.py patches the game's
 # render size to it at start). The ultrawide sizes (21:9, 32:9) also get the aspect ratio patches.
-RESOLUTIONS = ["1280x720", "1600x900", "1920x1080", "2560x1440", "2880x1620", "3200x1800", "3840x2160",
-               "2560x1080", "3440x1440", "3840x1600", "3840x1080", "5120x1440"]
+# Sizes above 4K's pixel count (5120x2160) do not fit the game's GPU memory (render_extra_mib).
+RESOLUTIONS = ["640x360", "854x480", "960x540", "1024x576", "1152x648", "1280x720", "1366x768", "1600x900",
+               "1920x1080", "2560x1440", "2880x1620", "3200x1800", "3840x2160",
+               "1024x640", "1152x720", "1280x800", "1440x900", "1680x1050", "1920x1200", "2560x1600",
+               "2560x1080", "3440x1440", "3840x1600",
+               "3840x1080", "5120x1440"]
+ASPECT_NAMES = [("16:9", 16 / 9, 0.01), ("16:10", 1.6, 0.01), ("21:9", 2.37, 0.035), ("32:9", 32 / 9, 0.01),
+                ("4:3", 4 / 3, 0.01), ("5:4", 1.25, 0.01)]
+
+
+def resolution_label(size):
+    """"1920x1080 (16:9)": the name monitors are sold with (2560x1080, 3440x1440, 3840x1600: 21:9)."""
+    try:
+        width, height = (int(part) for part in size.lower().split("x"))
+    except ValueError:
+        return size
+    for name, ratio, tolerance in ASPECT_NAMES:
+        if abs(width / height / ratio - 1) < tolerance:
+            return f"{width}x{height} ({name})"
+    gcd = math.gcd(width, height)
+    return f"{width}x{height} ({width // gcd}:{height // gcd})"
 DEFAULT_SWITCHES = {"motion_blur": False, "job_sleep": True, "profile": False, "background_shaders": True,
                     "pro_shadows": True, "ambient_half": True, "quarter_depth": True, "low_vram": "auto"}
 # Video memory (GOW3_LOW_VRAM, gpu/shadps4/video_core/renderer_vulkan/vk_low_vram.h): auto turns the
@@ -1179,37 +1198,6 @@ CONTROL_TEXT = {
         'геймпада» следует его типу (например, буквы Nintendo). Применяется при следующем запуске игры.',
         '自動は使っている入力に合わせてキーボードとコントローラーを切り替えます。「接続中のコントローラー」は'
         'コントローラーの種類に従います (例: Nintendo の文字)。次回のゲーム起動時から有効です。'),
-    'Personalizar ícones do Xbox': ('Customize Xbox icons', 'Personalizar iconos de Xbox',
-                                    'Personnaliser les icônes Xbox', 'Xbox-Symbole anpassen',
-                                    'Personalizza icone Xbox', 'Dostosuj ikony Xbox', 'Настроить значки Xbox',
-                                    'Xbox アイコンをカスタマイズ'),
-    'Abra o jogo uma vez: ele cria a imagem padrão.': (
-        'Start the game once: it creates the default picture.',
-        'Abre el juego una vez: crea la imagen predeterminada.',
-        'Lancez le jeu une fois : il crée l’image par défaut.',
-        'Starte das Spiel einmal: Es erstellt das Standardbild.',
-        'Avvia il gioco una volta: crea l’immagine predefinita.',
-        'Uruchom grę raz: utworzy domyślny obraz.',
-        'Запустите игру один раз: она создаст изображение по умолчанию.',
-        'ゲームを一度起動してください。既定の画像が作成されます。'),
-    'Edite xbox-icons.png (4 colunas x 3 linhas: A B X Y, LB RB LT RT, LS RS MENU VIEW). Uma célula '
-    'transparente usa o desenho do jogo; apagar o arquivo volta ao padrão.': (
-        'Edit xbox-icons.png (4 columns x 3 rows: A B X Y, LB RB LT RT, LS RS MENU VIEW). A transparent cell '
-        'uses the built-in drawing; deleting the file goes back to the default.',
-        'Edita xbox-icons.png (4 columnas x 3 filas: A B X Y, LB RB LT RT, LS RS MENU VIEW). Una celda '
-        'transparente usa el dibujo integrado; borrar el archivo vuelve al predeterminado.',
-        'Modifiez xbox-icons.png (4 colonnes x 3 lignes : A B X Y, LB RB LT RT, LS RS MENU VIEW). Une case '
-        'transparente garde le dessin intégré ; supprimer le fichier rétablit celui par défaut.',
-        'Bearbeite xbox-icons.png (4 Spalten x 3 Zeilen: A B X Y, LB RB LT RT, LS RS MENU VIEW). Eine '
-        'transparente Zelle nutzt die eingebaute Zeichnung; Löschen der Datei stellt den Standard wieder her.',
-        'Modifica xbox-icons.png (4 colonne x 3 righe: A B X Y, LB RB LT RT, LS RS MENU VIEW). Una cella '
-        'trasparente usa il disegno integrato; eliminare il file torna al predefinito.',
-        'Edytuj xbox-icons.png (4 kolumny x 3 wiersze: A B X Y, LB RB LT RT, LS RS MENU VIEW). Przezroczysta '
-        'komórka używa wbudowanego rysunku; usunięcie pliku przywraca domyślne.',
-        'Отредактируйте xbox-icons.png (4 столбца x 3 строки: A B X Y, LB RB LT RT, LS RS MENU VIEW). '
-        'Прозрачная ячейка использует встроенный рисунок; удаление файла возвращает вариант по умолчанию.',
-        'xbox-icons.png を編集してください (4 列 x 3 行: A B X Y, LB RB LT RT, LS RS MENU VIEW)。透明なセルは'
-        '内蔵の絵を使い、ファイルを削除すると既定に戻ります。'),
 }
 
 # The art is the player's own dump's (sce_sys), read at run time: no game file in the repository.
@@ -2609,8 +2597,10 @@ class Launcher(tk.Tk):
         self.display = self.choice(panel, row, self.t("display"), list(self.display_labels),
                                    key_for(self.display_labels, ini.get("display_mode"), self.t("borderless")))
         res = ini.get("output_res", "1920x1080")
-        self.resolution = self.choice(panel, row + 1, self.t("resolution"),
-                                      RESOLUTIONS + ([res] if res not in RESOLUTIONS else []), res)
+        self.resolution_labels = {resolution_label(size): size
+                                  for size in RESOLUTIONS + ([res] if res not in RESOLUTIONS else [])}
+        self.resolution = self.choice(panel, row + 1, self.t("resolution"), list(self.resolution_labels),
+                                      resolution_label(res))
         fps = ini.get("fps_limit", "60")
         self.fps = self.choice(panel, row + 2, self.t("fps"), FPS if fps in FPS else FPS + [fps], fps)
         self.upscaler_labels = self.labels(UPSCALERS)
@@ -2771,7 +2761,8 @@ class Launcher(tk.Tk):
         self.save()
 
     def save(self):
-        write_ini({"display_mode": self.display_labels[self.display.get()], "output_res": self.resolution.get(),
+        write_ini({"display_mode": self.display_labels[self.display.get()],
+                   "output_res": self.resolution_labels[self.resolution.get()],
                    "fps_limit": self.fps.get(), "upscaler": self.upscaler_labels[self.upscaler.get()],
                    "preset": self.preset_labels[self.preset.get()], "vsync": int(self.vsync.get()),
                    "show_fps": int(self.show_fps.get()),
@@ -3173,29 +3164,7 @@ class Launcher(tk.Tk):
                      'Automático troca entre teclado e controle conforme o que você usa. "Do controle conectado" segue o '
                      'tipo do controle (letras da Nintendo, por exemplo). Vale na próxima vez que o jogo abrir.'),
                  bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=560, justify="left").pack(anchor="w", padx=14,
-                                                                                              pady=(2, 4))
-        # The controller icons sheet (gow3_prompts.cpp): xbox-icons.png beside tlou.ini, started from
-        # the drawn buttons the game writes at each start (xbox-icons-default.png).
-        sheet_row = tk.Frame(icons_card, bg=BG)
-        sheet_row.pack(anchor="w", fill="x", padx=12, pady=(0, 10))
-        sheet_note = tk.Label(sheet_row, bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=420, justify="left")
-
-        def open_sheet():
-            sheet, default = INI.parent / "xbox-icons.png", INI.parent / "xbox-icons-default.png"
-            if not sheet.is_file():
-                if not default.is_file():
-                    sheet_note.config(text=self.debug_text("Abra o jogo uma vez: ele cria a imagem padrão."))
-                    return
-                sheet.write_bytes(default.read_bytes())
-            sheet_note.config(text=self.debug_text(
-                "Edite xbox-icons.png (4 colunas x 3 linhas: A B X Y, LB RB LT RT, LS RS MENU VIEW). Uma célula "
-                "transparente usa o desenho do jogo; apagar o arquivo volta ao padrão."))
-            subprocess.Popen(["explorer", "/select,", str(sheet)])
-
-        tk.Button(sheet_row, text=self.debug_text("Personalizar ícones do Xbox"), command=open_sheet, bg=PANEL,
-                  fg=TEXT, bd=0, cursor="hand2", activebackground="#222", activeforeground=ACCENT,
-                  font=("Segoe UI", 9), padx=12, pady=3, takefocus=0).pack(side="left", anchor="n")
-        sheet_note.pack(side="left", padx=(14, 0))
+                                                                                              pady=(2, 10))
 
         def shown():
             return outer.winfo_exists() and tabs.select() == str(outer)

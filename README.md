@@ -182,8 +182,8 @@ shadPS4. The width must be a multiple of 16 (the game asserts it; other widths a
 `TLOU_ASPECT=0` leaves the image stretched.
 
 The launcher sets the display, frame limit and folders, in nine languages; its Debug menu switches
-each optimization off, some of them while the game runs. The in-game menu (Insert, or R3+L2 on a
-controller) holds the graphics, controls and frame rate settings.
+each optimization off, some of them while the game runs. The in-game menu (Insert; a controller shortcut
+can be set in its Controls page) holds the graphics, controls and frame rate settings.
 
 **Keyboard and mouse:** WASD or the arrow keys move, the mouse turns the camera, right and left
 mouse buttons aim and fire, Space or Enter is Cross, C Circle, F Square, E Triangle, Left Shift

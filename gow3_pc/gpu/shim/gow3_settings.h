@@ -126,8 +126,9 @@ struct Values {
     std::atomic<int> prompts{-1};
     std::atomic<unsigned> controls_generation{0};
     /// The controller shortcut for the in-game menu (GitHub #15: LT + R3 is also the sniper
-    /// zoom): 0 LT + right stick click, 1 View + Menu together, 2 none (Insert on the keyboard).
-    std::atomic<int> menu_shortcut{0};
+    /// zoom): 0 LT + right stick click, 1 View + Menu together, 2 none (Insert on the keyboard,
+    /// the default).
+    std::atomic<int> menu_shortcut{2};
     /// gow3 18 Oct (GitHub #15, #19): menu_shortcut 3 = this custom controller shortcut, one or
     /// two SDL gamepad button names ("lefttrigger"/"righttrigger" for the triggers) joined by
     /// '+'; and the keyboard key that opens the menu (SDL key name). Guarded by ControlsMutex().
