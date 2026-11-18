@@ -194,7 +194,25 @@ launcher's Controls window and the in-game menu rebind them.
 Back/View on an Xbox-style controller. Shaking the controller is G on the keyboard or the
 Share/Capture button (`GOW3_KEY_MAP` / `GOW3_PAD_MAP` `shake=...` rebind it). The flashlight
 never flickers out by default, so it needs no shake: Celogamez's GoldHEN cheat "Flashlight Does
-Not Turn Off" (`TLOU_CHEATS=none` turns it off).
+Not Turn Off". The launcher's Controls window (Controller tab, Flashlight) turns it off
+(`flashlight_fix` in tlou.ini; `TLOU_CHEATS=none` also does). Without it the flashlight
+first flickers after about 6 minutes on; `tools/flashlight_probe.py --force` (with the game
+started by `Teste-Lanterna-Rastro.cmd`) starts a flicker at once, to check it and the shake.
+
+**DirectInput controllers:** a controller SDL has no gamepad mapping for (generic USB pads,
+console-pad adapters) still moves the game: without a mapped gamepad, the first such controller's
+axes are the sticks (`GOW3_DINPUT_AXES=<left x>,<left y>,<right x>,<right y>`, default `0,1,2,3`)
+and its first hat the d-pad. Its buttons follow the usual layout of generic PlayStation-style
+pads: Square, Cross, Circle, Triangle, L1, R1, L2, R2, Share (right touchpad click), Options, L3,
+R3, PS (unused), touchpad. `GOW3_DINPUT_BUTTONS` lists another layout, the PS4 button of each
+controller button in order (e.g. `cross,circle,square,triangle,l1,r1,l2,r2,touchpad_right,options`;
+`-` leaves a button unused). `GOW3_DINPUT=0` turns this off; `GOW3_DINPUT=force` reads every
+controller this way, also one SDL recognizes (no vibration then). `GOW3_DINPUT_AXES` takes two more
+axes for L2 and R2 when they are triggers on axes, and a seventh one that shakes the controller
+when it swings back and forth fast. A gamepad with a working accelerometer (DualShock 4,
+DualSense, Switch Pro) also shakes it when shaken for real (`GOW3_SENSOR_SHAKE=0` turns that off). The launcher's Controls window (Controller tab,
+DirectInput controller) chooses the mode and remaps the buttons, sticks and triggers by pressing
+them (`dinput`, `dinput_buttons`, `dinput_axes` in tlou.ini).
 
 **Walking on the keyboard:** Left Ctrl (`walk=...` in the key map) keeps the left stick, keys or
 controller, at 75% of a full push. The launcher's Controls window and the in-game menu choose
