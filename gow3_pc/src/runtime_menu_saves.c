@@ -11,13 +11,13 @@
 #define TEXT_SAVE_GAME 0x0615b1acu
 #define TEXT_DELETE 0x47d83f63u
 enum { MAX_ROWS = 33, LABEL_SIZE = 160 };
-/* The menu's update must open the page this soon after the dialog asked, else the overlay list. */
-#define OPEN_TIMEOUT_SECONDS 1.5
 
 typedef ABI void (*PageOpen)(void *menu, uint32_t page, uint32_t a, uint32_t b);
 typedef ABI void (*PageBack)(void *menu, uint32_t a);
+typedef ABI void (*Dispatch)(void *menu, uint32_t hash, uint32_t a);
 static PageOpen page_open;
 static PageBack page_back;
+static Dispatch dispatch;
 static atomic_int page_added, update_hooked;
 
 static char labels[MAX_ROWS][LABEL_SIZE], names[MAX_ROWS][LABEL_SIZE], dates[MAX_ROWS][LABEL_SIZE];
@@ -29,19 +29,22 @@ static int areas[MAX_ROWS];
 static atomic_int row_count, new_first, list_type;
 /* The list's value (the shown row), read and written by the game's widget. */
 static _Alignas(16) int32_t selected;
-/* 0 closed, 1 asked (the menu's next update opens the page), 2 open. */
-enum { CLOSED, ASKED, OPEN };
-static atomic_int state;
-static atomic_int chosen = -1;
-static int seen_page;
-static double asked_at;
-static void *_Atomic open_menu;
 
-static double now_seconds(void) {
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    return (double)ts.tv_sec + ts.tv_nsec * 1e-9;
-}
+/* The game's Load Game runs a script (update 1.11: 0xb9b887ba, from the dispatcher's LOAD GAME
+ * button) that opens the save dialog and loads the save; it does not survive the main page being
+ * left and opened again. So the page runs apart from it:
+ *   the first dialog is answered "cancelled" at once (as Back in the overlay list) and its rows
+ *   are shown on our page (ASKED: the menu's next update opens it, OPEN);
+ *   a row's press closes the page with the game's back() (SETTLING); once the main page has been
+ *   on top for SETTLE_FRAMES updates, LOAD GAME is dispatched again (as the game's own save
+ *   callback 0x309900 does) and the dialog it opens is answered with the chosen save at once. */
+enum { CLOSED, ASKED, OPEN, SETTLING };
+enum { SETTLE_FRAMES = 15 };
+#define BUTTON_LOAD_GAME 0xf7a5b490u
+static atomic_int state;
+static atomic_int pressed = -1, chosen = -1;
+static int seen_page, settle;
+static void *_Atomic open_menu;
 
 /* The page on top of the menu's page stack (its hash), read on the menu's update. */
 static uint32_t top_page(const unsigned char *menu) {
@@ -51,11 +54,11 @@ static uint32_t top_page(const unsigned char *menu) {
     const unsigned char *page = (const unsigned char *)(uintptr_t)gow3_menu_u64(menu + GOW3_MENU_PAGE_STACK + 8 * top);
     return page ? gow3_menu_u32(page + GOW3_MENU_PAGE_OBJECT_HASH) : 0;
 }
-static atomic_int left_page, showing;
 
-void runtime_menu_saves_set_navigation(void *open, void *back) {
+void runtime_menu_saves_set_navigation(void *open, void *back, void *dispatcher) {
     page_open = (PageOpen)open;
     page_back = (PageBack)back;
+    dispatch = (Dispatch)dispatcher;
 }
 
 void runtime_menu_saves_set_update_hooked(void) {
@@ -66,27 +69,46 @@ void runtime_menu_saves_page_added(void) {
     atomic_store(&page_added, 1);
 }
 
-/* The menu's per-frame update (its entry hook): the asked page opens here, in the menu's own
- * context, as the dispatcher's buttons do. */
+/* The overlay's picture only for saves whose area is not known (the game draws the others). */
+static void show_preview(int on_top) {
+    const int row = selected;
+    const int known = row >= 0 && row < atomic_load(&row_count) && areas[row] >= 0;
+    gow3gpu_preview_show(on_top && !known ? row : -1);
+}
+
+/* The menu's per-frame update (its entry hook), in the menu's own context. */
 ABI void runtime_menu_saves_update(void *menu, uint32_t unused) {
     (void)unused;
     if (!menu) return;
-    if (atomic_load(&state) == OPEN && menu == atomic_load(&open_menu)) {
-        /* Our page on top, or left without a choice (Back). */
-        const int on_top = top_page(menu) == GOW3_MENU_SAVES_PAGE;
-        if (on_top) seen_page = 1;
-        else if (seen_page) atomic_store(&left_page, 1);
-        atomic_store(&showing, on_top);
+    const int st = atomic_load(&state);
+    if (st == ASKED) {
+        seen_page = 0;
+        atomic_store(&open_menu, menu);
+        atomic_store(&state, OPEN);
+        page_open(menu, GOW3_MENU_SAVES_PAGE, 0, 0);
+        printf("Menu: save list on the game's own page (%d rows)\n", atomic_load(&row_count));
         return;
     }
-    if (atomic_load(&state) != ASKED) return;
-    seen_page = 0;
-    atomic_store(&left_page, 0);
-    atomic_store(&showing, 0);
-    atomic_store(&open_menu, menu);
-    atomic_store(&state, OPEN);
-    page_open(menu, GOW3_MENU_SAVES_PAGE, 0, 0);
-    printf("Menu: save list on the game's own page (%d rows)\n", atomic_load(&row_count));
+    if (menu != atomic_load(&open_menu)) return;
+    const int on_top = top_page(menu) == GOW3_MENU_SAVES_PAGE;
+    if (st == OPEN) {
+        if (on_top) seen_page = 1;
+        else if (seen_page) { /* Back: left without a choice */
+            atomic_store(&state, CLOSED);
+            gow3gpu_preview_show(-1);
+            return;
+        }
+        show_preview(on_top);
+    } else if (st == SETTLING) {
+        gow3gpu_preview_show(-1);
+        if (on_top) settle = 0;
+        else if (++settle >= SETTLE_FRAMES) {
+            atomic_store(&chosen, atomic_load(&pressed));
+            atomic_store(&state, CLOSED);
+            printf("Menu: save list row %d chosen, Load Game again\n", atomic_load(&chosen));
+            if (dispatch) dispatch(menu, BUTTON_LOAD_GAME, 0);
+        }
+    }
 }
 
 int runtime_menu_saves_open(int type, int count, int has_new, const char *const *row_labels,
@@ -97,16 +119,18 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
         disabled = env && env[0] == '0';
     }
     const char *why = disabled ? "GOW3_NATIVE_SAVE_LIST=0"
-                    : !page_open || !page_back ? "page navigation not found"
+                    : type != 2 ? "only Load Game is on the game's page"
+                    : !page_open || !page_back || !dispatch ? "page navigation not found"
                     : !atomic_load(&update_hooked) ? "menu update not hooked"
                     : !atomic_load(&page_added) ? "page not in the menu data"
+                    : atomic_load(&state) != CLOSED ? "page busy"
                     : count <= 0 || count > MAX_ROWS ? "row count"
                                                      : NULL;
     if (why) {
         printf("Menu: save list in the overlay (%s)\n", why);
         return 0;
     }
-    /* "name - date" rows: the name and the date apart (part 0 and part 1 of the label). */
+    /* "name - date" rows: the name and the date apart. */
     for (int i = 0; i < count; ++i) {
         snprintf(labels[i], LABEL_SIZE, "%s", row_labels[i] ? row_labels[i] : "");
         const char *dash = strstr(labels[i], " - ");
@@ -119,51 +143,26 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
     atomic_store(&new_first, has_new);
     atomic_store(&list_type, type);
     selected = 0;
+    atomic_store(&pressed, -1);
     atomic_store(&chosen, -1);
     gow3gpu_preview_begin(pictures, count);
-    asked_at = now_seconds();
     atomic_store(&state, ASKED);
     return 1;
 }
 
-
-int runtime_menu_saves_poll(void) {
-    const int st = atomic_load(&state);
-    if (st == CLOSED) return -2;
-    if (st == ASKED) {
-        /* No menu update ran (the menu is not on screen): the overlay list instead. */
-        int expected = ASKED;
-        if (now_seconds() - asked_at > OPEN_TIMEOUT_SECONDS && atomic_compare_exchange_strong(&state, &expected, CLOSED)) {
-            puts("Menu: save list in the overlay (the menu did not open the page)");
-            return -3;
-        }
-        return -1;
-    }
-    const int pick = atomic_load(&chosen);
-    if (pick >= 0) {
-        atomic_store(&state, CLOSED);
-        gow3gpu_preview_show(-1);
-        return pick;
-    }
-    if (atomic_load(&left_page)) { /* Back: the page was left without a choice */
-        atomic_store(&state, CLOSED);
-        gow3gpu_preview_show(-1);
-        return -2;
-    }
-    /* The overlay's picture only for saves whose area is not known (the game draws the others). */
-    const int row = selected;
-    const int known = row >= 0 && row < atomic_load(&row_count) && areas[row] >= 0;
-    gow3gpu_preview_show(atomic_load(&showing) && !known ? row : -1);
-    return -1;
+int runtime_menu_saves_take_choice(void) {
+    return atomic_exchange(&chosen, -1);
 }
 
 /* Runs inside the dispatcher, in the menu's update: the shown row is chosen and the page closes. */
 int runtime_menu_saves_button(void *menu, uint32_t hash) {
     if (hash != GOW3_MENU_SAVES_LIST) return 0;
-    if (atomic_load(&state) != OPEN || atomic_load(&chosen) >= 0) return 1;
+    if (atomic_load(&state) != OPEN) return 1;
     const int count = atomic_load(&row_count);
     const int row = selected < 0 ? 0 : selected >= count ? count - 1 : selected;
-    atomic_store(&chosen, row);
+    atomic_store(&pressed, row);
+    settle = 0;
+    atomic_store(&state, SETTLING);
     gow3gpu_preview_show(-1);
     if (page_back && menu) page_back(menu, 0);
     return 1;

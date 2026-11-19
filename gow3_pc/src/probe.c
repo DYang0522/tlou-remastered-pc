@@ -1036,7 +1036,7 @@ static void install_menu_exit(Segment *segments, uint64_t count, uint64_t size) 
          * page navigation. */
         const uint64_t open_at = gow3_signature_find(image, size, &gow3_menu_page_open);
         const uint64_t back_at = gow3_signature_find(image, size, &gow3_menu_page_back);
-        if (open_at != UINT64_MAX && back_at != UINT64_MAX) runtime_menu_saves_set_navigation(image + open_at, image + back_at);
+        if (open_at != UINT64_MAX && back_at != UINT64_MAX) runtime_menu_saves_set_navigation(image + open_at, image + back_at, image + click_at);
         update_at = gow3_signature_find(image, size, &gow3_menu_update_site);
         if (update_at != UINT64_MAX && mapped(segments, count, update_at, GOW3_MENU_UPDATE_LENGTH))
             gow3_menu_build_click_stub(stubs + UPDATE_STUB, (uintptr_t)runtime_menu_saves_update,

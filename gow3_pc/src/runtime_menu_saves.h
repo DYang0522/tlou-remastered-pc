@@ -10,20 +10,19 @@
 #include "runtime_menu_pc.h"
 
 /* At hook install: the page navigation functions, and the menu update hook in place. */
-void runtime_menu_saves_set_navigation(void *open, void *back);
+void runtime_menu_saves_set_navigation(void *open, void *back, void *dispatcher);
 void runtime_menu_saves_set_update_hooked(void);
 /* The page was added to the menu data. */
 void runtime_menu_saves_page_added(void);
 /* The menu update hook's helper (menu, the update's esi). */
 ABI void runtime_menu_saves_update(void *menu, uint32_t unused);
-/* Asks for the page with these rows (type: 1 save, 2 load, 3 delete; labels UTF-8, pictures PNG
- * paths or NULL); 1 when asked, 0 to use the overlay list. new_first: row 0 is the new save
- * (labelled in the game's language). */
+/* Load Game's first dialog: its rows go to the page (labels UTF-8, pictures PNG paths or NULL,
+ * chapters the saves' sub-chapter names); 1 when the page will show them (the dialog is then
+ * answered "cancelled"), 0 to use the overlay list. Only type 2 (load). */
 int runtime_menu_saves_open(int type, int count, int new_first, const char *const *labels,
                             const char *const *pictures, const char *const *chapters);
-/* -1 while asked or open, -2 cancelled (Back), -3 the page did not open (use the overlay list),
- * else the chosen row. */
-int runtime_menu_saves_poll(void);
+/* The row chosen on the page (once; -1 none): the replayed Load Game's dialog answers with it. */
+int runtime_menu_saves_take_choice(void);
 /* A press (inside the dispatcher): 1 when it was the list's (the shown row is chosen). */
 int runtime_menu_saves_button(void *menu, uint32_t hash);
 /* The list's binding (runtime_menu_pc_binding, for GOW3_MENU_SAVES_OPTION). */

@@ -48,7 +48,7 @@ int runtime_menu_saves_open(int type, int count, int new_first, const char *cons
                             const char *const *chapters) {
     (void)type; (void)count; (void)new_first; (void)labels; (void)pictures; (void)chapters; return 0;
 }
-int runtime_menu_saves_poll(void) { return -2; }
+int runtime_menu_saves_take_choice(void) { return -1; }
 int runtime_savedata_param(int32_t user, const char *dir, void *param) { (void)user; (void)dir; (void)param; return -1; }
 int runtime_savedata_icon(int32_t user, const char *dir, char *out, size_t size) { (void)user; (void)dir; (void)out; (void)size; return -1; }
 static int trophy_lists_shown, trophies_shown, trophy_last_shown=-1;

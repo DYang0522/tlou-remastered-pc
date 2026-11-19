@@ -541,6 +541,8 @@ static struct {
     int shown; /* rows in save_labels and save_icons ("" = no picture) */
     const char *title;
 } save_dialog;
+/* Load Game on the game's menu page (runtime_menu_saves.c): the rows it shows, by name. */
+static struct { char dirs[33][32]; int has_new; } save_page;
 static char save_labels[33][200], save_icons[33][720], save_rows[33][160], save_chapters[33][128];
 static void save_label(char *out, size_t size, const char *dir) {
     unsigned char param[RUNTIME_SAVE_PARAM_SIZE];
@@ -610,13 +612,33 @@ static ABI int32_t save_open(const unsigned char *p) {
         ++n;
     }
     uint32_t type; memcpy(&type,p+56,4);
+    /* The replayed Load Game: the save chosen on the game's menu page, at once. */
+    const int pick=type==2 ? runtime_menu_saves_take_choice() : -1;
+    if (pick>=0) {
+        const int at=pick-save_page.has_new;
+        const char *want=at>=0 && at<33 ? save_page.dirs[at] : "";
+        int found=-1;
+        for (int i=0;want[0] && i<save_dialog.dir_count;++i) if (!strcmp(save_dialog.dirs[i],want)) found=i;
+        if (found>=0) {
+            memcpy(save_dialog.dirs[0],save_dialog.dirs[found],32);
+            save_dialog.dir_count=1;
+            dialogs[2].status=DIALOG_FINISHED; dialogs[2].button=1;
+            printf("Runtime: SaveDataDialog list: chose %s (on the game's menu page)\n",save_dialog.dirs[0]);
+            return 0;
+        }
+        printf("Runtime: SaveDataDialog list: %s chosen on the game's menu page is not listed\n",want);
+    }
     const char *title=type==1 ? "Save game" : type==2 ? "Load game" : "Delete save";
     /* The game's own menu page when it can show it (src/runtime_menu_saves.c), else the overlay. */
     save_dialog.shown=n; save_dialog.title=title;
     if (n && runtime_menu_saves_open((int)type,n,save_dialog.has_new,rows,icons,chapters)) {
+        /* The page shows them; this dialog ends as Back would (the game's Load Game script stops
+         * quietly), and a choice there dispatches Load Game again. */
+        for (int i=0;i<save_dialog.dir_count;++i) memcpy(save_page.dirs[i],save_dialog.dirs[i],32);
+        save_page.has_new=save_dialog.has_new;
         printf("Runtime: SaveDataDialog list (%s): %d entries on the game's menu page\n",title,n);
-        save_dialog.choosing=2;
-        dialogs[2].status=DIALOG_RUNNING;
+        save_dialog.result=SAVE_RESULT_CANCELED;
+        dialogs[2].status=DIALOG_FINISHED; dialogs[2].button=0;
         return 0;
     }
     if (!n || !gow3gpu_choice_begin(title,labels,icons,n,0)) {
@@ -632,14 +654,7 @@ static ABI int32_t save_open(const unsigned char *p) {
 }
 static ABI int32_t save_status(void) {
     if (save_dialog.choosing) {
-        int choice=save_dialog.choosing==2 ? runtime_menu_saves_poll() : gow3gpu_choice_poll();
-        if (choice==-3) {
-            /* The game's menu did not show its page: the overlay list, as before. */
-            const char *labels[33], *icons[33];
-            for (int i=0;i<save_dialog.shown;++i) { labels[i]=save_labels[i]; icons[i]=save_icons[i][0] ? save_icons[i] : NULL; }
-            if (gow3gpu_choice_begin(save_dialog.title,labels,icons,save_dialog.shown,0)) { save_dialog.choosing=1; return dialog_status(2); }
-            choice=-2;
-        }
+        int choice=gow3gpu_choice_poll();
         if (choice!=-1) {
             save_dialog.choosing=0;
             dialogs[2].status=DIALOG_FINISHED;
