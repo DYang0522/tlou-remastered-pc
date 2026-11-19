@@ -161,6 +161,8 @@ STARTUP = [
         ("Busca de imagens só na primeira página", "GOW3_IMAGE_FIRST_PAGE", "1", "0", True),
         ("Staging das cópias do tamanho da cópia", "GOW3_COPY_STAGING_SIZED", "1", "0", True),
         ("Ritmo de quadros estável após engasgos", "GOW3_FLIP_REBASE", "1", "0", True),
+        ("Aquecer só os 1.000 shaders mais recentes (menos RAM)", "GOW3_WARMUP_LIMIT", "1000", "0", True),
+        ("Duas threads no aquecimento de shaders (NVIDIA)", "GOW3_WARMUP_THREADS", "2", "0", True),
     ]),
 ]
 
@@ -878,6 +880,24 @@ DEBUG_TEXT = {
         'Równe tempo klatek po przycięciach',
         'Ровный темп кадров после подтормаживаний',
         'カクつき後のフレーム間隔を安定化'),
+    'Aquecer só os 1.000 shaders mais recentes (menos RAM)': (
+        'Warm up only the 1,000 most recent shaders (less RAM)',
+        'Precargar solo los 1.000 shaders más recientes (menos RAM)',
+        'Préchauffer seulement les 1 000 shaders les plus récents (moins de RAM)',
+        'Nur die 1.000 neuesten Shader vorladen (weniger RAM)',
+        'Precaricare solo i 1.000 shader più recenti (meno RAM)',
+        'Wstępnie ładuj tylko 1000 najnowszych shaderów (mniej RAM)',
+        'Прогревать только 1000 последних шейдеров (меньше ОЗУ)',
+        '最近の1,000個のシェーダーのみ事前読み込み (RAM削減)'),
+    'Duas threads no aquecimento de shaders (NVIDIA)': (
+        'Two threads for the shader warm-up (NVIDIA)',
+        'Dos hilos para la precarga de shaders (NVIDIA)',
+        'Deux threads pour le préchauffage des shaders (NVIDIA)',
+        'Zwei Threads für das Shader-Vorladen (NVIDIA)',
+        'Due thread per il precaricamento degli shader (NVIDIA)',
+        'Dwa wątki do wstępnego ładowania shaderów (NVIDIA)',
+        'Два потока для прогрева шейдеров (NVIDIA)',
+        'シェーダー事前読み込みに2スレッド (NVIDIA)'),
 }
 
 # Controls window: the keyboard and mouse maps the game reads from tlou.ini (key_map, mouse_map:
