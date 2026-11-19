@@ -22,10 +22,6 @@ ABI void *runtime_menu_pc_binding(void *menu, uint32_t kind, uint32_t a, uint32_
                                   uint32_t d);
 /* "New save" in the language of the last text table seen. */
 const char *runtime_menu_pc_new_save_text(void);
-/* "LOAD" (the verb, the save list's confirm prompt) in the language of the last text table seen. */
-const char *runtime_menu_pc_load_text(void);
-/* "SAVE" (the save list's confirm prompt when saving), the same way. */
-const char *runtime_menu_pc_save_text(void);
 /* A text of the game in the language of the last text table seen (NULL before one or if none). */
 const char *runtime_menu_pc_game_text(uint32_t sid);
 /* From the pad's sampling: values changed in the page are applied and saved. */

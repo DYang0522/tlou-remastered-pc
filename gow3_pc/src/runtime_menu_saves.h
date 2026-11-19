@@ -24,8 +24,6 @@ int runtime_menu_saves_open(int type, int count, int new_first, const char *cons
                             const char *const *pictures, const char *const *chapters);
 /* The row chosen on the page (once; -1 none): the replayed button's dialog answers with it. */
 int runtime_menu_saves_take_choice(void);
-/* The footer's SELECT while the list is shown ("LOAD" in the game's language), else NULL. */
-const char *runtime_menu_saves_select_text(void);
 /* From the dispatcher hook: the button pressed last (the one a dialog comes from, pressed again
  * once a row is chosen). */
 void runtime_menu_saves_note_button(uint32_t hash);

@@ -61,10 +61,6 @@ void runtime_menu_exit_set_text(void *original) {
 
 /* text(table, sid) for sid in [TEXT_FIRST, TEXT_LAST], from the lookup's hook: our labels. */
 ABI const char *runtime_menu_exit_text(void *table, uint32_t sid) {
-    if (sid == GOW3_MENU_TEXT_SELECT) {
-        const char *text = runtime_menu_saves_select_text();
-        return text ? text : text_original(table, sid);
-    }
     if (sid != GOW3_MENU_LABEL_EXIT_DESKTOP) {
         const char *text = runtime_menu_pc_text(text_original, table, sid);
         return text ? text : text_original(table, sid);
