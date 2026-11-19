@@ -146,6 +146,7 @@ void runtime_menu_exit_set_confirm(void *open) {
 
 /* Runs on the menu's thread, at the dispatcher's entry: the game's own opener is safe to call. */
 ABI void runtime_menu_exit_button(void *menu, uint32_t hash) {
+    runtime_menu_saves_note_button(hash);
     if (runtime_menu_saves_button(menu, hash) || runtime_menu_pc_button(hash)) return;
     if (hash == GOW3_MENU_EXIT_LOBBY || hash == GOW3_MENU_EXIT_CONFIRMED) {
         leave();

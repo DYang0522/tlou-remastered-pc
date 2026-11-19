@@ -11,7 +11,6 @@
 /* The game's own texts for the page title: "LOAD GAME", "SAVE GAME" and "Delete". */
 #define TEXT_LOAD_GAME 0x7c894f27u
 #define TEXT_SAVE_GAME 0x0615b1acu
-#define TEXT_DELETE 0x47d83f63u
 enum { MAX_ROWS = 33, LABEL_SIZE = 160 };
 
 typedef ABI void (*PageOpen)(void *menu, uint32_t page, uint32_t a, uint32_t b);
@@ -45,7 +44,8 @@ static _Alignas(16) int32_t selected;
  *   callback 0x309900 does) and the dialog it opens is answered with the chosen save at once. */
 enum { CLOSED, ASKED, OPEN, SETTLING };
 enum { SETTLE_FRAMES = 15 };
-#define BUTTON_LOAD_GAME 0xf7a5b490u
+/* The button the dialog came from (Load Game, Save Game, ...): pressed again after a choice. */
+static atomic_uint last_button, origin_button;
 static atomic_int state;
 static atomic_int pressed = -1, chosen = -1;
 static int seen_page, settle;
@@ -130,8 +130,8 @@ ABI void runtime_menu_saves_update(void *menu, uint32_t unused) {
         else if (++settle >= SETTLE_FRAMES) {
             atomic_store(&chosen, atomic_load(&pressed));
             atomic_store(&state, CLOSED);
-            printf("Menu: save list row %d chosen, Load Game again\n", atomic_load(&chosen));
-            if (dispatch) dispatch(menu, BUTTON_LOAD_GAME, 0);
+            printf("Menu: save list row %d chosen, button %#x again\n", atomic_load(&chosen), atomic_load(&origin_button));
+            if (dispatch) dispatch(menu, atomic_load(&origin_button), 0);
         }
     }
 }
@@ -165,7 +165,8 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
         disabled = env && env[0] == '0';
     }
     const char *why = disabled ? "GOW3_NATIVE_SAVE_LIST=0"
-                    : type != 2 ? "only Load Game is on the game's page"
+                    : type != 1 && type != 2 ? "only Load and Save are on the game's page"
+                    : !atomic_load(&last_button) ? "no button seen"
                     : !page_open || !page_back || !dispatch ? "page navigation not found"
                     : !atomic_load(&update_hooked) ? "menu update not hooked"
                     : !atomic_load(&page_added) ? "page not in the menu data"
@@ -206,12 +207,19 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
         }
     }
     gow3gpu_preview_begin(shown, count);
+    atomic_store(&origin_button, atomic_load(&last_button));
     atomic_store(&state, ASKED);
     return 1;
 }
 
 const char *runtime_menu_saves_select_text(void) {
-    return atomic_load(&state) == OPEN ? runtime_menu_pc_load_text() : NULL;
+    if (atomic_load(&state) != OPEN) return NULL;
+    const int type = atomic_load(&list_type);
+    return type == 1 ? runtime_menu_pc_save_text() : runtime_menu_pc_load_text();
+}
+
+void runtime_menu_saves_note_button(uint32_t hash) {
+    if (hash != GOW3_MENU_SAVES_LIST) atomic_store(&last_button, hash);
 }
 
 int runtime_menu_saves_take_choice(void) {
@@ -898,6 +906,6 @@ void runtime_menu_saves_bind(unsigned char *binding) {
 const char *runtime_menu_saves_text(Gow3TextLookup lookup, void *table, uint32_t sid) {
     if (sid != GOW3_MENU_SAVES_TITLE) return NULL;
     const int type = atomic_load(&list_type);
-    const char *text = lookup(table, type == 1 ? TEXT_SAVE_GAME : type == 3 ? TEXT_DELETE : TEXT_LOAD_GAME);
+    const char *text = lookup(table, type == 1 ? TEXT_SAVE_GAME : TEXT_LOAD_GAME);
     return text ? text : "";
 }

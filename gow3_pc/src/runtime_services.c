@@ -542,7 +542,7 @@ static struct {
     const char *title;
 } save_dialog;
 /* Load Game on the game's menu page (runtime_menu_saves.c): the rows it shows, by name. */
-static struct { char dirs[33][32]; int has_new; } save_page;
+static struct { char dirs[33][32]; int has_new, type; } save_page;
 static char save_labels[33][200], save_icons[33][720], save_rows[33][160], save_chapters[33][128];
 static void save_label(char *out, size_t size, const char *dir) {
     unsigned char param[RUNTIME_SAVE_PARAM_SIZE];
@@ -612,10 +612,19 @@ static ABI int32_t save_open(const unsigned char *p) {
         ++n;
     }
     uint32_t type; memcpy(&type,p+56,4);
-    /* The replayed Load Game: the save chosen on the game's menu page, at once. */
-    const int pick=type==2 ? runtime_menu_saves_take_choice() : -1;
-    if (pick>=0) {
+    /* The replayed button (Load Game, Save Game, ...): the save chosen on the game's menu page, at
+     * once (the same dialog type as the page showed). */
+    const int pick=runtime_menu_saves_take_choice();
+    if (pick>=0 && (int)type==save_page.type) {
         const int at=pick-save_page.has_new;
+        if (at<0 && save_dialog.has_new) {
+            /* The new save row: no name, as the overlay list answers it. */
+            save_dialog.dirs[0][0]=0;
+            save_dialog.dir_count=save_dialog.dir_count ? 1 : 0;
+            dialogs[2].status=DIALOG_FINISHED; dialogs[2].button=1;
+            puts("Runtime: SaveDataDialog list: chose new save (on the game's menu page)");
+            return 0;
+        }
         const char *want=at>=0 && at<33 ? save_page.dirs[at] : "";
         int found=-1;
         for (int i=0;want[0] && i<save_dialog.dir_count;++i) if (!strcmp(save_dialog.dirs[i],want)) found=i;
@@ -636,6 +645,7 @@ static ABI int32_t save_open(const unsigned char *p) {
          * quietly), and a choice there dispatches Load Game again. */
         for (int i=0;i<save_dialog.dir_count;++i) memcpy(save_page.dirs[i],save_dialog.dirs[i],32);
         save_page.has_new=save_dialog.has_new;
+        save_page.type=(int)type;
         printf("Runtime: SaveDataDialog list (%s): %d entries on the game's menu page\n",title,n);
         save_dialog.result=SAVE_RESULT_CANCELED;
         dialogs[2].status=DIALOG_FINISHED; dialogs[2].button=0;
