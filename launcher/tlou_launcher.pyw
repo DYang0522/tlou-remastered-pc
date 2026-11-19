@@ -152,6 +152,16 @@ STARTUP = [
         # (gow3_pc/src/runtime_hud.c); off: they stop at the 16:9 edges as before.
         ("Camadas do HUD até as bordas (ultrawide)", "GOW3_HUD_BARS", "1", "0", True),
     ]),
+    # 15-19 Nov 2026 optimizations, each switchable for A/B tests (off: the code as before).
+    ("Otimizações recentes", [
+        ("Page watchers sob demanda (512 MiB a menos de RAM)", "GOW3_LAZY_PAGE_WATCHERS", "1", "0", True),
+        ("Lock rápido da tabela de memória", "GOW3_FAST_REGION_LOCK", "1", "0", True),
+        ("Busca rápida de locks, semáforos e threads", "GOW3_REGISTRY_FRONT", "1", "0", True),
+        ("Busca direta de fences adiados", "GOW3_FENCE_LOOKUP", "1", "0", True),
+        ("Busca de imagens só na primeira página", "GOW3_IMAGE_FIRST_PAGE", "1", "0", True),
+        ("Staging das cópias do tamanho da cópia", "GOW3_COPY_STAGING_SIZED", "1", "0", True),
+        ("Ritmo de quadros estável após engasgos", "GOW3_FLIP_REBASE", "1", "0", True),
+    ]),
 ]
 
 # The debug menu in the launcher's languages: {Portuguese text: the other languages, in this order}.
@@ -796,6 +806,78 @@ DEBUG_TEXT = {
         'Warstwy HUD do krawędzi ekranu (ultrawide)',
         'Слои HUD до краёв экрана (ultrawide)',
         'HUDのレイヤーを画面端まで表示 (ウルトラワイド)'),
+    'Otimizações recentes': (
+        'Recent optimizations',
+        'Optimizaciones recientes',
+        'Optimisations récentes',
+        'Neue Optimierungen',
+        'Ottimizzazioni recenti',
+        'Najnowsze optymalizacje',
+        'Новые оптимизации',
+        '最近の最適化'),
+    'Page watchers sob demanda (512 MiB a menos de RAM)': (
+        'Page watchers on demand (512 MiB less RAM)',
+        'Vigilantes de páginas bajo demanda (512 MiB menos de RAM)',
+        'Surveillance des pages à la demande (512 Mio de RAM en moins)',
+        'Seitenwächter bei Bedarf (512 MiB weniger RAM)',
+        'Controllo pagine su richiesta (512 MiB di RAM in meno)',
+        'Nadzór stron na żądanie (512 MiB mniej RAM)',
+        'Отслеживание страниц по запросу (на 512 МиБ меньше ОЗУ)',
+        'ページ監視をオンデマンドで確保 (RAMを512 MiB削減)'),
+    'Lock rápido da tabela de memória': (
+        'Fast memory table lock',
+        'Bloqueo rápido de la tabla de memoria',
+        'Verrou rapide de la table mémoire',
+        'Schnelle Sperre der Speichertabelle',
+        'Blocco rapido della tabella di memoria',
+        'Szybka blokada tabeli pamięci',
+        'Быстрая блокировка таблицы памяти',
+        'メモリテーブルの高速ロック'),
+    'Busca rápida de locks, semáforos e threads': (
+        'Fast lookup of locks, semaphores and threads',
+        'Búsqueda rápida de bloqueos, semáforos e hilos',
+        'Recherche rapide des verrous, sémaphores et threads',
+        'Schnelle Suche nach Sperren, Semaphoren und Threads',
+        'Ricerca rapida di lock, semafori e thread',
+        'Szybkie wyszukiwanie blokad, semaforów i wątków',
+        'Быстрый поиск блокировок, семафоров и потоков',
+        'ロック・セマフォ・スレッドの高速検索'),
+    'Busca direta de fences adiados': (
+        'Direct lookup of deferred fences',
+        'Búsqueda directa de fences diferidos',
+        'Recherche directe des fences différés',
+        'Direkte Suche verzögerter Fences',
+        'Ricerca diretta dei fence differiti',
+        'Bezpośrednie wyszukiwanie odroczonych fence',
+        'Прямой поиск отложенных fence',
+        '遅延フェンスの直接検索'),
+    'Busca de imagens só na primeira página': (
+        'Image lookup in the first page only',
+        'Búsqueda de imágenes solo en la primera página',
+        'Recherche d’images dans la première page seulement',
+        'Bildsuche nur auf der ersten Seite',
+        'Ricerca immagini solo nella prima pagina',
+        'Wyszukiwanie obrazów tylko na pierwszej stronie',
+        'Поиск изображений только на первой странице',
+        '最初のページのみで画像を検索'),
+    'Staging das cópias do tamanho da cópia': (
+        'Copy staging sized to the copy',
+        'Staging de copias del tamaño de la copia',
+        'Tampon des copies à la taille de la copie',
+        'Kopierpuffer in Kopiergröße',
+        'Staging delle copie della dimensione della copia',
+        'Bufor kopii o rozmiarze kopii',
+        'Буфер копирования по размеру копии',
+        'コピーサイズに合わせたステージング'),
+    'Ritmo de quadros estável após engasgos': (
+        'Even frame pacing after hitches',
+        'Ritmo de fotogramas estable tras tirones',
+        'Rythme d’images régulier après les saccades',
+        'Gleichmäßiges Frame-Pacing nach Rucklern',
+        'Ritmo dei fotogrammi stabile dopo gli scatti',
+        'Równe tempo klatek po przycięciach',
+        'Ровный темп кадров после подтормаживаний',
+        'カクつき後のフレーム間隔を安定化'),
 }
 
 # Controls window: the keyboard and mouse maps the game reads from tlou.ini (key_map, mouse_map:
