@@ -23,6 +23,8 @@ int runtime_menu_saves_open(int type, int count, int new_first, const char *cons
                             const char *const *pictures, const char *const *chapters);
 /* The row chosen on the page (once; -1 none): the replayed Load Game's dialog answers with it. */
 int runtime_menu_saves_take_choice(void);
+/* The footer's SELECT while the list is shown ("LOAD" in the game's language), else NULL. */
+const char *runtime_menu_saves_select_text(void);
 /* A press (inside the dispatcher): 1 when it was the list's (the shown row is chosen). */
 int runtime_menu_saves_button(void *menu, uint32_t hash);
 /* The list's binding (runtime_menu_pc_binding, for GOW3_MENU_SAVES_OPTION). */

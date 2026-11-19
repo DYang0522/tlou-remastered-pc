@@ -210,6 +210,10 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
     return 1;
 }
 
+const char *runtime_menu_saves_select_text(void) {
+    return atomic_load(&state) == OPEN ? runtime_menu_pc_load_text() : NULL;
+}
+
 int runtime_menu_saves_take_choice(void) {
     return atomic_exchange(&chosen, -1);
 }

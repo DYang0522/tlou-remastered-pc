@@ -53,6 +53,7 @@
 #define GOW3_MENU_OPTION_LOCK_30 0x9a7ea6e5u
 #define GOW3_MENU_OPTION_SENSITIVITY 0x1abac2d6u
 enum {
+    GOW3_MENU_PAGE_FLAGS = 0x44, GOW3_MENU_PAGE_SELECT_PROMPT = 0x08000000,
     GOW3_MENU_PAGE_SIZE = 0xa0, GOW3_MENU_PAGE_HASH = 8, GOW3_MENU_PAGE_TITLE_TEXT = 0x10,
     GOW3_MENU_PAGE_TITLE = 0x18, GOW3_MENU_PAGE_LIST = 0x48, GOW3_MENU_MAX_PAGES = 256,
     GOW3_MENU_ITEM_TEXT = 0x20, GOW3_MENU_ITEM_PAGE_NAME = 0x50, GOW3_MENU_ITEM_PAGE = 0x58,
@@ -261,6 +262,11 @@ static inline Gow3MenuPcPatched gow3_menu_pc_patch(unsigned char *data, uint64_t
             gow3_menu_put64(save_page + GOW3_MENU_PAGE_TITLE_TEXT, save_title);
             gow3_menu_put32(save_page + GOW3_MENU_PAGE_TITLE, GOW3_MENU_SAVES_TITLE);
             gow3_menu_put64(save_page + GOW3_MENU_PAGE_LIST, (uint64_t)(uintptr_t)save_entry);
+            /* The footer's confirm prompt (record +0x44 bit 0x08000000, the page object's +0xa8:
+             * the footer builder 0x2fa8d6 draws the Cross button with SELECT, 0x3b0bd611, which
+             * the text hook answers "LOAD" while the list is shown). */
+            gow3_menu_put32(save_page + GOW3_MENU_PAGE_FLAGS,
+                            gow3_menu_u32(save_page + GOW3_MENU_PAGE_FLAGS) | GOW3_MENU_PAGE_SELECT_PROMPT);
             done.saves = 1;
         }
         gow3_menu_put64(pages_entry, page_count + 1 + saves);
