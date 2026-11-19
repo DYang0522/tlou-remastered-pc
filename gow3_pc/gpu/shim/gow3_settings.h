@@ -117,6 +117,10 @@ struct Values {
     /// gow3 20 Oct 2026: mouse sensitivity while aiming (times mouse_sens) and up/down speed
     /// compared with left/right.
     std::atomic<float> mouse_aim_sens{1.0f}, mouse_vertical{1.0f};
+    /// 19 Nov 2026 (GitHub #168): with a scope (aim field of view under 45 degrees), times the aim
+    /// sensitivity and the zoom's own slowdown (src/runtime_mouselook.c). 20% by default: the
+    /// player's choice in the sniper scene.
+    std::atomic<float> mouse_scope_sens{0.2f};
     /// 11 Nov 2026: the walk key (key map "walk") toggles instead of acting while held, and how
     /// far the left stick goes while walking.
     std::atomic<bool> walk_toggle{false};

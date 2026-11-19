@@ -1054,6 +1054,9 @@ CONTROL_TEXT = {
     'Sensibilidade ao mirar': ('Aim sensitivity', 'Sensibilidad al apuntar', 'Sensibilité en visée',
                                'Empfindlichkeit beim Zielen', 'Sensibilità in mira', 'Czułość podczas celowania',
                                'Чувствительность при прицеливании', 'エイム時の感度'),
+    'Sensibilidade com luneta': ('Scope sensitivity', 'Sensibilidad con mira telescópica', 'Sensibilité avec lunette',
+                                 'Empfindlichkeit mit Zielfernrohr', 'Sensibilità con mirino', 'Czułość z lunetą',
+                                 'Чувствительность с прицелом', 'スコープ時の感度'),
     'Inverter eixo vertical': ('Invert vertical axis', 'Invertir eje vertical', "Inverser l'axe vertical",
                                'Vertikale Achse umkehren', 'Inverti asse verticale', 'Odwróć oś pionową',
                                'Инвертировать вертикальную ось', '上下を反転'),
@@ -3752,21 +3755,23 @@ class Launcher(tk.Tk):
         outer, body = self.scroll_area(tabs, self.debug_text("Mouse"), self.debug_text("Vale na próxima vez que o jogo abrir."))
         ini = read_ini()
 
-        def percent(key):
+        def percent(key, default=1.0):
             try:
-                return round(float(ini.get(key, "1")) * 100)
+                return round(float(ini.get(key, str(default))) * 100)
             except ValueError:
-                return 100
+                return round(default * 100)
 
         enabled = tk.BooleanVar(value=ini.get("mouse", "1") != "0")
         invert = tk.BooleanVar(value=ini.get("mouse_invert", "0") == "1")
         invert_x = tk.BooleanVar(value=ini.get("mouse_invert_x", "0") == "1")
         sens, aim = tk.IntVar(value=percent("mouse_sens")), tk.IntVar(value=percent("mouse_aim_sens"))
+        scope = tk.IntVar(value=percent("mouse_scope_sens", 0.2))
         pending = []
 
         def save():
             write_ini({"mouse": int(enabled.get()), "mouse_sens": f"{sens.get() / 100:.2f}",
-                       "mouse_aim_sens": f"{aim.get() / 100:.2f}", "mouse_invert": int(invert.get()),
+                       "mouse_aim_sens": f"{aim.get() / 100:.2f}", "mouse_scope_sens": f"{scope.get() / 100:.2f}",
+                       "mouse_invert": int(invert.get()),
                        "mouse_invert_x": int(invert_x.get())})
 
         def save_later(_=None):   # a slider writes once it rests
@@ -3776,11 +3781,12 @@ class Launcher(tk.Tk):
 
         tk.Frame(body, bg=PANEL, height=6).pack()
         self.option(body, "Usar o mouse", enabled, save)
-        for text, variable, top in (("Sensibilidade do mouse", sens, 500), ("Sensibilidade ao mirar", aim, 1000)):
+        for text, variable, bottom, top in (("Sensibilidade do mouse", sens, 25, 500), ("Sensibilidade ao mirar", aim, 25, 1000),
+                                            ("Sensibilidade com luneta", scope, 10, 1000)):
             self.group(body, text)
             row = tk.Frame(body, bg=PANEL)
             row.pack(anchor="w")
-            tk.Scale(row, from_=25, to=top, resolution=5, orient="horizontal", length=420, variable=variable,
+            tk.Scale(row, from_=bottom, to=top, resolution=5, orient="horizontal", length=420, variable=variable,
                      showvalue=False, command=save_later, bg=PANEL, fg=TEXT, troughcolor=BG, activebackground=ACCENT,
                      highlightthickness=0, bd=0).pack(side="left")
             tk.Label(row, textvariable=variable, width=5, anchor="e", bg=PANEL, fg=TEXT, font=("Segoe UI", 10)).pack(side="left")
@@ -3800,6 +3806,7 @@ class Launcher(tk.Tk):
             invert_x.set(False)
             sens.set(100)
             aim.set(100)
+            scope.set(20)
             save()
 
         self.reset_link(outer, reset)

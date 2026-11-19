@@ -75,9 +75,9 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         (key == "mouse" ? v.mouse : key == "mouse_invert" ? v.mouse_invert : v.mouse_invert_x) = i != 0;
         return;
     }
-    if (key == "mouse_aim_sens" || key == "mouse_vertical") {
-        (key == "mouse_aim_sens" ? v.mouse_aim_sens : v.mouse_vertical) =
-            f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+    if (key == "mouse_aim_sens" || key == "mouse_vertical" || key == "mouse_scope_sens") {
+        (key == "mouse_aim_sens" ? v.mouse_aim_sens : key == "mouse_vertical" ? v.mouse_vertical : v.mouse_scope_sens) =
+            f > 0.0f ? Clamp(f, 0.1f, 10.0f) : key == "mouse_scope_sens" ? 0.2f : 1.0f;
         return;
     }
     if (key == "mouse_sens") {
@@ -293,7 +293,7 @@ void Load() {
         {"GOW3_MOUSE_MAP", "mouse_map"},              {"GOW3_MOUSE", "mouse"},
         {"GOW3_MOUSE_SENS", "mouse_sens"},            {"GOW3_MOUSE_INVERT", "mouse_invert"},
         {"GOW3_MOUSE_AIM_SENS", "mouse_aim_sens"},    {"GOW3_MOUSE_VERTICAL", "mouse_vertical"},
-        {"GOW3_MOUSE_INVERT_X", "mouse_invert_x"},
+        {"GOW3_MOUSE_INVERT_X", "mouse_invert_x"},     {"GOW3_MOUSE_SCOPE_SENS", "mouse_scope_sens"},
         {"GOW3_PROMPTS", "prompts"},                  {"GOW3_STICK_SPEED", "stick_speed"},
         {"GOW3_WALK_TOGGLE", "walk_toggle"},          {"GOW3_WALK_SPEED", "walk_speed"},
         {"GOW3_VIBRATION", "vibration"},
@@ -457,8 +457,8 @@ KeyValues Current() {
     Append(text, "mouse=%d\nmouse_sens=%.2f\nmouse_invert=%d\nprompts=%s\nstick_speed=%.2f\n",
            int(v.mouse.load()), v.mouse_sens.load(), int(v.mouse_invert.load()), PromptsName(v.prompts),
            v.stick_speed.load());
-    Append(text, "mouse_aim_sens=%.2f\nmouse_vertical=%.2f\nmouse_invert_x=%d\n", v.mouse_aim_sens.load(),
-           v.mouse_vertical.load(), int(v.mouse_invert_x.load()));
+    Append(text, "mouse_aim_sens=%.2f\nmouse_vertical=%.2f\nmouse_invert_x=%d\nmouse_scope_sens=%.2f\n",
+           v.mouse_aim_sens.load(), v.mouse_vertical.load(), int(v.mouse_invert_x.load()), v.mouse_scope_sens.load());
     Append(text, "walk_toggle=%d\nwalk_speed=%.2f\nvibration=%d\n", int(v.walk_toggle.load()), v.walk_speed.load(),
            int(v.vibration.load()));
     {
@@ -558,6 +558,10 @@ extern "C" float gow3gpu_controls_mouse_aim_sens(void) {
     return Gow3Settings::Get().mouse_aim_sens;
 }
 
+extern "C" float gow3gpu_controls_mouse_scope_sens(void) {
+    return Gow3Settings::Get().mouse_scope_sens;
+}
+
 extern "C" float gow3gpu_controls_mouse_vertical(void) {
     return Gow3Settings::Get().mouse_vertical;
 }
@@ -628,6 +632,7 @@ extern "C" int gow3gpu_pc_setting(int setting) {
     case GOW3_PC_PERF_OVERLAY: return s.show_fps ? 1 : 0;
     case GOW3_PC_MOUSE_SENS: return Percent(s.mouse_sens);
     case GOW3_PC_MOUSE_AIM_SENS: return Percent(s.mouse_aim_sens);
+    case GOW3_PC_MOUSE_SCOPE_SENS: return Percent(s.mouse_scope_sens);
     case GOW3_PC_MOUSE_VERTICAL: return Percent(s.mouse_vertical);
     case GOW3_PC_MOUSE_INVERT: return s.mouse_invert ? 1 : 0;
     case GOW3_PC_VIBRATION: return s.vibration ? 1 : 0;
@@ -689,6 +694,7 @@ extern "C" void gow3gpu_pc_setting_set(int setting, int value) {
     case GOW3_PC_PERF_OVERLAY: s.show_fps = value != 0; break;
     case GOW3_PC_MOUSE_SENS: s.mouse_sens = std::clamp(value, 25, 500) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_AIM_SENS: s.mouse_aim_sens = std::clamp(value, 25, 1000) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_SCOPE_SENS: s.mouse_scope_sens = std::clamp(value, 10, 1000) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_VERTICAL: s.mouse_vertical = std::clamp(value, 25, 300) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_INVERT: s.mouse_invert = value != 0; controls = true; break;
     case GOW3_PC_VIBRATION: s.vibration = value != 0; controls = true; break;
