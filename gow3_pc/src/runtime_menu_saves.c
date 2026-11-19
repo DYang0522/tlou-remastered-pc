@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* The game's own texts for the page title: "LOAD GAME", "SAVE GAME" and "Delete". */
 #define TEXT_LOAD_GAME 0x7c894f27u
@@ -134,6 +136,27 @@ ABI void runtime_menu_saves_update(void *menu, uint32_t unused) {
     }
 }
 
+static int area_of(int row);
+
+/* The Chapters page's area pictures as PNG files in <user>/chapter-art-2 (gow3_chapter_art.cpp),
+ * made from the game's common.psarc the first time; 1 when they are there. */
+static int chapter_art(void) {
+    static int ready = -1;
+    if (ready >= 0) return ready;
+    char dir[600], last[680];
+    snprintf(dir, sizeof(dir), "%s/chapter-art-2", runtime_file_user_dir()); /* -2: with the mask */
+    snprintf(last, sizeof(last), "%s/area-11.png", dir);
+    if (access(last, 0) == 0) return ready = 1;
+    mkdir(dir, 0755);
+    char psarc[1024];
+    if (runtime_file_translate("/app0/build/ps4/main/common.psarc", psarc, sizeof(psarc))) {
+        puts("Menu: no common.psarc for the Chapters pictures");
+        return ready = 0;
+    }
+    ready = gow3gpu_chapter_art(psarc, dir) == 12;
+    return ready;
+}
+
 int runtime_menu_saves_open(int type, int count, int has_new, const char *const *row_labels,
                             const char *const *pictures, const char *const *row_chapters) {
     static int disabled = -1;
@@ -169,7 +192,20 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
     selected = 0;
     atomic_store(&pressed, -1);
     atomic_store(&chosen, -1);
-    gow3gpu_preview_begin(pictures, count);
+    /* Saves whose area is known show that area's picture (the Chapters art, read from the game's
+     * files once); the others their own. */
+    const char *shown[MAX_ROWS];
+    static char art[MAX_ROWS][600];
+    const int have_art = chapter_art();
+    for (int i = 0; i < count; ++i) {
+        shown[i] = pictures ? pictures[i] : NULL;
+        const int area = area_of(i);
+        if (have_art && area >= 0) {
+            snprintf(art[i], sizeof(art[i]), "%s/chapter-art-2/area-%d.png", runtime_file_user_dir(), area);
+            shown[i] = art[i];
+        }
+    }
+    gow3gpu_preview_begin(shown, count);
     atomic_store(&state, ASKED);
     return 1;
 }

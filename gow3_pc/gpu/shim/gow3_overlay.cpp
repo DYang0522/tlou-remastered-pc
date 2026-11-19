@@ -1798,7 +1798,8 @@ void DrawPreview(vk::Extent2D extent) {
     const float bx0 = (picture_box ? 828.0f : 773.0f) * sx, by0 = (picture_box ? 175.0f : 320.0f) * sy;
     const float bw = 669.0f * sx, bh = 377.0f * sy;
     const float aspect = tex->Height ? float(tex->Width) / float(tex->Height) : 1.0f;
-    float w = bw, h = bw / aspect;
+    // In the Chapters picture's box the picture fills it, as the game draws its own.
+    float w = bw, h = picture_box ? bh : bw / aspect;
     if (h > bh) {
         h = bh;
         w = bh * aspect;

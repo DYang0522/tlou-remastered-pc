@@ -122,6 +122,9 @@ void gow3gpu_preview_show(int index);
 /* With the index: the picture goes in the box of the game's Chapters picture (the game reserved
  * it but has no art for it), else under the texts beside the list. */
 #define GOW3_PREVIEW_PICTURE_BOX 0x10000
+/* The Last of Us Remastered: the Chapters page's 12 area pictures (gow3_chapter_art.cpp) from the
+ * game's common.psarc (host path) into out_dir/area-<i>.png; the number written. */
+int gow3gpu_chapter_art(const char *common_psarc, const char *out_dir);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned gow3gpu_symbol_count(void);
 #ifdef __cplusplus
