@@ -119,6 +119,9 @@ void gow3gpu_settings_menu_open(void);
  * none; decoded here), then the row whose picture shows (-1: none), from any thread. */
 void gow3gpu_preview_begin(const char *const *images, int count);
 void gow3gpu_preview_show(int index);
+/* With the index: the picture goes in the box of the game's Chapters picture (the game reserved
+ * it but has no art for it), else under the texts beside the list. */
+#define GOW3_PREVIEW_PICTURE_BOX 0x10000
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned gow3gpu_symbol_count(void);
 #ifdef __cplusplus

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "gow3_overlay.h"
+#include "../gow3gpu.h"
 
 #include <algorithm>
 #include <array>
@@ -1785,13 +1786,17 @@ void UpdatePreviewTextures() {
 // The shown row's picture, under the texts of the panel beside the list (1080p: 773,320 to
 // 1442,697, the Chapters picture's size), its aspect kept.
 void DrawPreview(vk::Extent2D extent) {
-    const int index = preview_index;
+    const int shown = preview_index;
+    const bool picture_box = shown >= 0 && (shown & GOW3_PREVIEW_PICTURE_BOX);
+    const int index = shown < 0 ? -1 : shown & (GOW3_PREVIEW_PICTURE_BOX - 1);
     if (index < 0 || index >= int(preview_textures.size()) || !preview_textures[index]) {
         return;
     }
     ImTextureData* tex = preview_textures[index];
     const float sx = float(extent.width) / 1920.0f, sy = float(extent.height) / 1080.0f;
-    const float bx0 = 773.0f * sx, by0 = 320.0f * sy, bw = 669.0f * sx, bh = 377.0f * sy;
+    // The Chapters picture's box (1080p: 828,175, 669x377), or under the texts (773,320).
+    const float bx0 = (picture_box ? 828.0f : 773.0f) * sx, by0 = (picture_box ? 175.0f : 320.0f) * sy;
+    const float bw = 669.0f * sx, bh = 377.0f * sy;
     const float aspect = tex->Height ? float(tex->Width) / float(tex->Height) : 1.0f;
     float w = bw, h = bw / aspect;
     if (h > bh) {

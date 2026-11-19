@@ -26,6 +26,9 @@ static char labels[MAX_ROWS][LABEL_SIZE], names[MAX_ROWS][LABEL_SIZE], dates[MAX
 enum { AREA_UNKNOWN = -2 };
 static char chapters[MAX_ROWS][LABEL_SIZE];
 static int areas[MAX_ROWS];
+/* The game had no picture for the row's area (its Chapters art is not loaded, as in the pause
+ * menu): the overlay draws the save's own picture where the game's would be. */
+static atomic_int no_game_picture[MAX_ROWS];
 static atomic_int row_count, new_first, list_type;
 /* The list's value (the shown row), read and written by the game's widget. */
 static _Alignas(16) int32_t selected;
@@ -69,11 +72,29 @@ void runtime_menu_saves_page_added(void) {
     atomic_store(&page_added, 1);
 }
 
-/* The overlay's picture only for saves whose area is not known (the game draws the others). */
+/* The pause menu's pages on the stack (PAGE_PAUSE_GAME): in game, where the Chapters art is not
+ * loaded (the game answers the area's picture but draws nothing). */
+#define PAGE_PAUSE_GAME 0xf05cd578u
+static int in_game(const unsigned char *menu) {
+    const int32_t top = (int32_t)gow3_menu_u32(menu + GOW3_MENU_PAGE_TOP);
+    for (int32_t i = 0; i <= top && i < GOW3_MENU_PAGE_STACK_SIZE; ++i) {
+        const unsigned char *page = (const unsigned char *)(uintptr_t)gow3_menu_u64(menu + GOW3_MENU_PAGE_STACK + 8 * i);
+        if (page && gow3_menu_u32(page + GOW3_MENU_PAGE_OBJECT_HASH) == PAGE_PAUSE_GAME) return 1;
+    }
+    return 0;
+}
+static atomic_int paused;
+
+/* The overlay's picture for saves whose area is not known, and in game (the game draws the
+ * others). */
 static void show_preview(int on_top) {
     const int row = selected;
-    const int known = row >= 0 && row < atomic_load(&row_count) && areas[row] >= 0;
-    gow3gpu_preview_show(on_top && !known ? row : -1);
+    const int valid = row >= 0 && row < atomic_load(&row_count);
+    const int known = valid && areas[row] >= 0;
+    if (!on_top || !valid) gow3gpu_preview_show(-1);
+    else if (!known) gow3gpu_preview_show(row);
+    else if (atomic_load(&paused) || atomic_load(&no_game_picture[row])) gow3gpu_preview_show(row | GOW3_PREVIEW_PICTURE_BOX);
+    else gow3gpu_preview_show(-1);
 }
 
 /* The menu's per-frame update (its entry hook), in the menu's own context. */
@@ -83,10 +104,12 @@ ABI void runtime_menu_saves_update(void *menu, uint32_t unused) {
     const int st = atomic_load(&state);
     if (st == ASKED) {
         seen_page = 0;
+        atomic_store(&paused, in_game(menu));
         atomic_store(&open_menu, menu);
         atomic_store(&state, OPEN);
         page_open(menu, GOW3_MENU_SAVES_PAGE, 0, 0);
-        printf("Menu: save list on the game's own page (%d rows)\n", atomic_load(&row_count));
+        printf("Menu: save list on the game's own page (%d rows%s)\n", atomic_load(&row_count),
+               atomic_load(&paused) ? ", in game: the saves' own pictures" : "");
         return;
     }
     if (menu != atomic_load(&open_menu)) return;
@@ -138,6 +161,7 @@ int runtime_menu_saves_open(int type, int count, int has_new, const char *const 
         snprintf(dates[i], LABEL_SIZE, "%s", dash ? dash + 3 : "");
         snprintf(chapters[i], LABEL_SIZE, "%s", row_chapters && row_chapters[i] ? row_chapters[i] : "");
         areas[i] = AREA_UNKNOWN;
+        atomic_store(&no_game_picture[i], 0);
     }
     atomic_store(&row_count, count);
     atomic_store(&new_first, has_new);
@@ -789,6 +813,7 @@ static int area_of(int row) {
  * (that provider's answer for another kind) when the area is not known. */
 typedef ABI void *(*ImageSlot)(void *out, void *self, int index, uint32_t kind);
 enum { IMAGE_SLOT = 14, MENU_AREA_LIST = 0x1480 };
+#define PICTURE_KIND 0x2138a9b2u
 static ABI void *row_image(void *out, void *self, int index, uint32_t kind) {
     (void)self;
     const unsigned char *menu = atomic_load(&open_menu);
@@ -800,7 +825,10 @@ static ABI void *row_image(void *out, void *self, int index, uint32_t kind) {
     const ImageSlot image = (ImageSlot)(uintptr_t)gow3_menu_u64(
         (const unsigned char *)(uintptr_t)gow3_menu_u64(areas_list) + 8 * IMAGE_SLOT);
     const int area = index >= 0 && index < atomic_load(&row_count) ? area_of(index) : -1;
-    return image(out, areas_list, area >= 0 ? area : 0, area >= 0 ? kind : 0);
+    void *result = image(out, areas_list, area >= 0 ? area : 0, area >= 0 ? kind : 0);
+    /* The picture kind answered with no picture (first word 0, else the art's frame). */
+    if (area >= 0 && kind == PICTURE_KIND) atomic_store(&no_game_picture[index], gow3_menu_u32(out) == 0);
+    return result;
 }
 static ABI int row_min(void *self) {
     (void)self;
