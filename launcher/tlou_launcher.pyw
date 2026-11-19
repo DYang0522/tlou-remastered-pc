@@ -3765,7 +3765,7 @@ class Launcher(tk.Tk):
         invert = tk.BooleanVar(value=ini.get("mouse_invert", "0") == "1")
         invert_x = tk.BooleanVar(value=ini.get("mouse_invert_x", "0") == "1")
         sens, aim = tk.IntVar(value=percent("mouse_sens")), tk.IntVar(value=percent("mouse_aim_sens"))
-        scope = tk.IntVar(value=percent("mouse_scope_sens", 0.2))
+        scope = tk.IntVar(value=percent("mouse_scope_sens"))
         pending = []
 
         def save():
@@ -3781,8 +3781,8 @@ class Launcher(tk.Tk):
 
         tk.Frame(body, bg=PANEL, height=6).pack()
         self.option(body, "Usar o mouse", enabled, save)
-        for text, variable, bottom, top in (("Sensibilidade do mouse", sens, 25, 500), ("Sensibilidade ao mirar", aim, 25, 1000),
-                                            ("Sensibilidade com luneta", scope, 10, 1000)):
+        for text, variable, bottom, top in (("Sensibilidade do mouse", sens, 10, 500), ("Sensibilidade ao mirar", aim, 10, 500),
+                                            ("Sensibilidade com luneta", scope, 10, 200)):
             self.group(body, text)
             row = tk.Frame(body, bg=PANEL)
             row.pack(anchor="w")
@@ -3806,7 +3806,7 @@ class Launcher(tk.Tk):
             invert_x.set(False)
             sens.set(100)
             aim.set(100)
-            scope.set(20)
+            scope.set(100)
             save()
 
         self.reset_link(outer, reset)

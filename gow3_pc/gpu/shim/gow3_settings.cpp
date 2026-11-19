@@ -75,13 +75,17 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         (key == "mouse" ? v.mouse : key == "mouse_invert" ? v.mouse_invert : v.mouse_invert_x) = i != 0;
         return;
     }
-    if (key == "mouse_aim_sens" || key == "mouse_vertical" || key == "mouse_scope_sens") {
-        (key == "mouse_aim_sens" ? v.mouse_aim_sens : key == "mouse_vertical" ? v.mouse_vertical : v.mouse_scope_sens) =
-            f > 0.0f ? Clamp(f, 0.1f, 10.0f) : key == "mouse_scope_sens" ? 0.2f : 1.0f;
+    /* 20 Nov 2026: mouse and aim sensitivity 10-500%, scope 10-200%. */
+    if (key == "mouse_aim_sens" || key == "mouse_sens") {
+        (key == "mouse_aim_sens" ? v.mouse_aim_sens : v.mouse_sens) = f > 0.0f ? Clamp(f, 0.1f, 5.0f) : 1.0f;
         return;
     }
-    if (key == "mouse_sens") {
-        v.mouse_sens = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+    if (key == "mouse_vertical") {
+        v.mouse_vertical = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+        return;
+    }
+    if (key == "mouse_scope_sens") {
+        v.mouse_scope_sens = f > 0.0f ? Clamp(f, 0.1f, 2.0f) : 1.0f;
         return;
     }
     if (key == "walk_toggle") {
@@ -692,9 +696,9 @@ extern "C" void gow3gpu_pc_setting_set(int setting, int value) {
     }
     case GOW3_PC_SHARPENING: s.rcas_strength = std::clamp(value, 0, 100); break;
     case GOW3_PC_PERF_OVERLAY: s.show_fps = value != 0; break;
-    case GOW3_PC_MOUSE_SENS: s.mouse_sens = std::clamp(value, 25, 500) / 100.0f; controls = true; break;
-    case GOW3_PC_MOUSE_AIM_SENS: s.mouse_aim_sens = std::clamp(value, 25, 1000) / 100.0f; controls = true; break;
-    case GOW3_PC_MOUSE_SCOPE_SENS: s.mouse_scope_sens = std::clamp(value, 10, 1000) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_SENS: s.mouse_sens = std::clamp(value, 10, 500) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_AIM_SENS: s.mouse_aim_sens = std::clamp(value, 10, 500) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_SCOPE_SENS: s.mouse_scope_sens = std::clamp(value, 10, 200) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_VERTICAL: s.mouse_vertical = std::clamp(value, 25, 300) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_INVERT: s.mouse_invert = value != 0; controls = true; break;
     case GOW3_PC_VIBRATION: s.vibration = value != 0; controls = true; break;

@@ -835,7 +835,7 @@ void ResetControls() {
     s.mouse_invert = false;
     s.mouse_invert_x = false;
     s.mouse_aim_sens = 1.0f;
-    s.mouse_scope_sens = 0.2f;
+    s.mouse_scope_sens = 1.0f;
     s.mouse_vertical = 1.0f;
     s.prompts = -1;
     s.stick_speed = 1.0f;
@@ -1118,11 +1118,11 @@ void ControlsTab() {
         Help("The mouse turns the camera and presses its buttons' actions. Off: the mouse is left alone.");
         ImGui::PopID();
         ImGui::BeginDisabled(!s.mouse);
-        changed |= PercentRow("Mouse sensitivity", s.mouse_sens, 25, 500, "How far the camera turns per mouse movement.");
-        changed |= PercentRow("Mouse aim sensitivity", s.mouse_aim_sens, 25, 1000,
+        changed |= PercentRow("Mouse sensitivity", s.mouse_sens, 10, 500, "How far the camera turns per mouse movement.");
+        changed |= PercentRow("Mouse aim sensitivity", s.mouse_aim_sens, 10, 500,
                               "While aiming (the aim button held): the mouse sensitivity times this. Below 100% "
                               "makes aiming finer.");
-        changed |= PercentRow("Mouse scope sensitivity", s.mouse_scope_sens, 10, 1000,
+        changed |= PercentRow("Mouse scope sensitivity", s.mouse_scope_sens, 10, 200,
                               "With a scope (sniper rifle, scoped weapons): the aim sensitivity times this, on "
                               "top of the zoom's own slowdown. Below 100% makes scoped aiming finer.");
         changed |= PercentRow("Mouse up/down speed", s.mouse_vertical, 25, 300,
