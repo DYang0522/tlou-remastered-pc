@@ -198,7 +198,8 @@ static void turn_debug(TurnDebug *d, float heading_now, float asked_degrees, con
 
 /* Third-person camera input 0x297440(camera, stick). */
 static TurnDebug follow_debug = {.name = "camera"};
-static volatile uint64_t camera_called_ms, aim_called_ms;
+static volatile uint64_t camera_called_ms, aim_called_ms, push_ms;
+static volatile uint32_t push_heading_bits;
 /* 19 Nov 2026 (GitHub #168): how much of the shown view a camera gives, from its camera manager
  * entry (camera + 0x134, 0..1; the manager hands it to the camera's update, which compares it
  * with 1). In the Pittsburgh suburbs' sniper scene the aim camera is 1 and the third-person
@@ -216,6 +217,18 @@ static ABI void *tlou_camera_input(unsigned char *camera, const float *stick, vo
     if (!((TlouPlayerOf)(image + TLOU_PLAYER_OF))(*(const uint32_t *)(camera + 0xf0))) return NULL;
     /* with its yaw locked the camera does not take the mouse (the stick path does the same) */
     if (!camera[0x1d0 + 0x28] && camera_shown(camera)) __atomic_store_n(&camera_called_ms, now_ms(), __ATOMIC_RELAXED);
+    /* 20 Nov 2026 (GitHub #185): pushing a dumpster or a pallet, the player's code sets this
+     * camera's direction from the object and locks its yaw (0x2982xx: camera + 0x1e0, lock at
+     * +0x1f8), and the right stick steers the object, the camera following it at up to about 25
+     * degrees/s. The mouse is the stick then; runtime_pad.c holds it until the camera has turned
+     * as far as the mouse moved (runtime_mouselook_push_heading). */
+    if (camera[0x1d0 + 0x28] && camera_shown(camera)) {
+        const float heading = heading_of((const float *)(camera + 0x1d0));
+        uint32_t bits;
+        memcpy(&bits, &heading, 4);
+        __atomic_store_n(&push_heading_bits, bits, __ATOMIC_RELAXED);
+        __atomic_store_n(&push_ms, now_ms(), __ATOMIC_RELAXED);
+    }
     const uint32_t frame = tlou_frame();
     float dx = 0, dy = 0;
     const int took = frame_look(camera, frame, &dx, &dy);
@@ -391,6 +404,13 @@ int runtime_mouselook_camera_recent(void) {
     const uint64_t now = now_ms();
     return now - __atomic_load_n(&camera_called_ms, __ATOMIC_RELAXED) < 60 ||
            now - __atomic_load_n(&aim_called_ms, __ATOMIC_RELAXED) < 60;
+}
+
+int runtime_mouselook_push_heading(float *heading) {
+    if (now_ms() - __atomic_load_n(&push_ms, __ATOMIC_RELAXED) >= 100) return 0;
+    const uint32_t bits = __atomic_load_n(&push_heading_bits, __ATOMIC_RELAXED);
+    memcpy(heading, &bits, 4);
+    return 1;
 }
 
 int runtime_mouselook_aim_recent(void) {

@@ -727,6 +727,40 @@ static int sample_mouse(PadData *d) {
     const float blend=dt/(dt+25.0f);
     vx+=(dx/dt-vx)*blend;
     vy+=(dy/dt-vy)*blend;
+    /* 20 Nov 2026 (GitHub #185): pushing a dumpster or a pallet the right stick steers the object
+     * and the camera follows it (runtime_mouselook_push_heading), at most about 33 degrees/s at the
+     * full stick: the mouse needed swipe after swipe. There the mouse stays the speed stick, but
+     * left/right asks for PUSH_GAIN times the deflection, and past the full stick the stick boost
+     * (runtime_mouselook.h) lets the object turn that much faster. Up/down is unchanged. */
+    {
+        enum { PUSH_GAIN = 4 };
+        float heading;
+        if (captured && runtime_mouselook_push_heading(&heading)) {
+            gow3gpu_mouse_look_pause(1);
+            if (now-last_motion>60000) { vx=vy=0; return used; }
+            float sx=vx*sensitivity*0.40f*invert_x, sy=vy*sensitivity*0.40f*invert*(vertical>0.0f ? vertical : 1.0f);
+            sx=fabsf(sx)>0.002f ? (sx<0.0f ? -1.0f : 1.0f)*(0.15f+0.85f*powf(fabsf(sx),2.0f/3.0f))*PUSH_GAIN : 0.0f;
+            sy=fabsf(sy)>0.002f ? (sy<0.0f ? -1.0f : 1.0f)*fminf(1.0f,0.15f+0.85f*powf(fabsf(sy),2.0f/3.0f)) : 0.0f;
+            float boost=1.0f;
+            if (fabsf(sx)>1.0f) {
+                boost=fabsf(sx)>50.0f ? 50.0f : fabsf(sx);
+                sx=sx<0.0f ? -1.0f : 1.0f;
+                runtime_mouselook_set_stick_boost(boost);
+                sy/=boost; /* the boost multiplies both axes */
+            }
+            if (mouse_look_debug()) {
+                static uint64_t push_debug_last;
+                if (now-push_debug_last>=1000000) {
+                    printf("Mouse debug: pushing, heading %.1f, stick %.2f %.2f, boost %.1f\n",heading,sx,sy,boost);
+                    fflush(stdout);
+                    push_debug_last=now;
+                }
+            }
+            if (sx!=0.0f) d->right_x=(uint8_t)(128.0f+sx*127.0f);
+            if (sy!=0.0f) d->right_y=(uint8_t)(sy<-1.0f ? 0 : sy>1.0f ? 255 : (int)(128.0f+sy*127.0f));
+            return used;
+        }
+    }
     if (!captured || now-last_motion>60000) { vx=vy=0; return used; }
     /* Mouse look drives the game's camera directly (src/runtime_mouselook.c): no stick. While
      * aiming the games turn their aim cameras by the right stick, so the mouse is the stick then
