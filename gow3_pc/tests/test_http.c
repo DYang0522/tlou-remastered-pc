@@ -2,6 +2,9 @@
 #undef NDEBUG
 #include "../src/runtime_http.c"
 #include <assert.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *nid) { (void)table; (void)count; (void)nid; return 0; }
 #ifdef _WIN32
