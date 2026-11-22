@@ -197,7 +197,7 @@ the update recompiles the materials' shaders once.
 
 </details>
 
-## 💻 Requirements
+## 💻 Windows requirements
 
 - Windows 10 or 11 (64-bit).
 - A CPU with AVX, SSE4.2 and POPCNT: Intel 2nd-generation Core (Sandy Bridge) or newer, or any
@@ -215,6 +215,25 @@ the update recompiles the materials' shaders once.
   textures dropped sooner and, when the card is full, data in system memory instead of a crash.
   Pair it with 1280x720 or 1600x900 (or an upscaler) and without PS4 Pro shadows.
 - About 6 GB of free RAM for the game.
+
+## 🐧 Linux (experimental build)
+
+The `linux-build` branch includes an Ubuntu 24.04 x86-64 build workflow. It builds the existing
+Linux runtime path (`gow3_pc/out/gow3-probe` and `libgow3gpu.so`); the Windows release and its
+launcher are unchanged. This is an experimental command-line launch path, not a Linux port of the
+Windows Tkinter launcher.
+
+1. Download the `TLOU-Remastered-linux-x86_64` artifact from the **Linux build** workflow and
+   extract it.
+2. Use your own dumped `CUSA00552` game folder with update 1.11. The update can be kept beside
+   the game as `CUSA00552-patch`, as on Windows; no game files are included in the archive.
+3. Start it from a terminal:
+   `bash Start-TLOU-Linux.sh /path/to/CUSA00552`
+
+You can omit the path when the game folder is named `CUSA00552` and sits beside the extracted
+project folder, or set `TLOU_GAME_DIR=/path/to/CUSA00552`. The launcher writes logs and settings
+under `analysis/tlou` and `analysis/tlou-user`. The archive carries SDL3; the host still needs a
+Vulkan 1.3 driver and the Ubuntu 24.04 runtime libraries for FFmpeg, X11/Wayland and Vulkan.
 
 ## 🎮 Playing
 
