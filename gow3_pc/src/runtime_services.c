@@ -19,6 +19,8 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #endif
 
 #define USER_ID 1
