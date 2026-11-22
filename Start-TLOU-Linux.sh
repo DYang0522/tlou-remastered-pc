@@ -26,5 +26,6 @@ fi
 # The Linux package carries SDL3 next to the runtime. Other system libraries (Vulkan,
 # FFmpeg, X11/Wayland) are provided by the host distribution.
 export LD_LIBRARY_PATH="$ROOT/gow3_pc/out${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PYTHONPATH="$ROOT/gow3_pc/out/pydeps${PYTHONPATH:+:$PYTHONPATH}"
 
 exec python3 "$ROOT/tools/probe_tlou.py" --game "$GAME_DIR" --boot --seconds 0 "$@"
