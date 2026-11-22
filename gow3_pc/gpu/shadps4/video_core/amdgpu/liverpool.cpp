@@ -47,7 +47,7 @@ namespace AmdGpu {
 // The EOP trace is diagnostic-only; use the native OS thread ID on each host.
 static unsigned long Gow3CurrentThreadId() {
 #ifdef _WIN32
-    return Gow3CurrentThreadId();
+    return static_cast<unsigned long>(GetCurrentThreadId());
 #else
     return static_cast<unsigned long>(::syscall(SYS_gettid));
 #endif
@@ -360,8 +360,8 @@ void Liverpool::ProcessLoop(std::stop_token stoken) {
         Gow3Stats::gpu_thread_clock.store(static_cast<int>(clock));
     }
 #else
-    Gow3Stats::gpu_thread_id.store(GetCurrentThreadId());
-    Gow3Profiler::Start(GetCurrentThreadId(), "GPU command thread");
+    Gow3Stats::gpu_thread_id.store(Gow3CurrentThreadId());
+    Gow3Profiler::Start(Gow3CurrentThreadId(), "GPU command thread");
     // gow3 18 Oct 2026 (tests): GOW3_GPU_THREAD_PRIORITY=above|high and GOW3_GPU_THREAD_CORE=<n>
     // (one logical processor) for this thread, which limits the frame rate in heavy scenes.
     Gow3Threads::ApplyGpuThreadPriority("GPU command thread");
@@ -828,7 +828,7 @@ static void TraceEopWrite(u64 address, u64 data) {
     std::printf("EOP trace: t=%.2f ms label %#llx = %#llx, counter %llu, thread %lu\n",
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
                 static_cast<unsigned long long>(address), static_cast<unsigned long long>(data),
-                static_cast<unsigned long long>(counter), static_cast<unsigned long>(GetCurrentThreadId()));
+                static_cast<unsigned long long>(counter), static_cast<unsigned long>(Gow3CurrentThreadId()));
 }
 
 // GOW3_TEST_LATE_IRQ=<ms>:<seconds> (tests): every <seconds>, the end-of-pipe interrupts of the
