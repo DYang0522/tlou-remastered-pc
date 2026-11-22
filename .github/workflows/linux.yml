@@ -53,7 +53,7 @@ jobs:
       - name: Install game preparation Python dependency
         run: |
           python3 -m venv "$RUNNER_TEMP/tlou-venv"
-          "$RUNNER_TEMP/tlou-venv/bin/python" -m pip install --disable-pip-version-check --no-cache-dir --target gow3_pc/out/pydeps iced-x86
+          "$RUNNER_TEMP/tlou-venv/bin/python" -m pip install --disable-pip-version-check --no-cache-dir --target gow3_pc/out/pydeps iced-x86==1.21.0 Pillow
           "$RUNNER_TEMP/tlou-venv/bin/python" -c "import sys; sys.path.insert(0, 'gow3_pc/out/pydeps'); import iced_x86; print('iced-x86:', iced_x86.__version__ if hasattr(iced_x86, '__version__') else 'installed')"
 
       - name: Assemble Linux archive
