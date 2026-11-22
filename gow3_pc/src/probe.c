@@ -1177,7 +1177,10 @@ int main(int argc, char **argv) {
     const char *guest_argv[17]={"/app0/eboot.bin"};
     int guest_argc=1;
     unsigned timeout_seconds = 10;
-    const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL, *red_zone_file=NULL;
+    const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL;
+#ifdef _WIN32
+    const char *red_zone_file=NULL;
+#endif
     const char *app0_overlays[4]; int app0_overlay_count=0;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--cpu-only")) cpu_only = 1;
@@ -1193,7 +1196,11 @@ int main(int argc, char **argv) {
         }
         else if (!strcmp(argv[i], "--user") && i+1<argc) user_dir=argv[++i];
         else if (!strcmp(argv[i], "--patches") && i+1<argc) patch_file=argv[++i];
+#ifdef _WIN32
         else if (!strcmp(argv[i], "--red-zone") && i+1<argc) red_zone_file=argv[++i];
+#else
+        else if (!strcmp(argv[i], "--red-zone") && i+1<argc) ++i; /* no Windows red-zone table on Linux */
+#endif
         else if (!strcmp(argv[i], "--timeout") && i+1<argc) timeout_seconds=(unsigned)strtoul(argv[++i],NULL,10);
         else if (!strcmp(argv[i], "--guest-path") && i+1<argc) guest_argv[0]=argv[++i];
         else if (!strcmp(argv[i], "--guest-arg") && i+1<argc) {
