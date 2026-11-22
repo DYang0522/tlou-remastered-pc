@@ -585,15 +585,6 @@ static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
 }
 #endif
 
-#ifndef _WIN32
-/* The GPU library can request these Windows hardware-breakpoint diagnostics. Linux does not
- * implement that diagnostic path; keep the optional hooks linkable and harmless. */
-void runtime_exec_watch_retarget(uint64_t address) { (void)address; }
-void runtime_exec_watch_set_reads(const uint64_t *addresses, int count) {
-    (void)addresses;
-    (void)count;
-}
-
 static void fault(int sig, siginfo_t *info, void *context) {
     /* GPU page tracking (write-protected guest pages) is resolved first, except during a
      * speculative read: see vectored_fault. */
