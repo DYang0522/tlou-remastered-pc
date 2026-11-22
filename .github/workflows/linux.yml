@@ -46,6 +46,17 @@ jobs:
           sudo ldconfig
           test -f /usr/local/include/vulkan/vulkan.hpp
 
+      - name: Install current AMD Vulkan Memory Allocator
+        run: |
+          git clone --depth 1 --branch v3.5.0 https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git "$RUNNER_TEMP/VulkanMemoryAllocator"
+          cmake -S "$RUNNER_TEMP/VulkanMemoryAllocator" -B "$RUNNER_TEMP/VulkanMemoryAllocator-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DVMA_ENABLE_INSTALL=ON -DVMA_BUILD_SAMPLES=OFF
+          sudo cmake --install "$RUNNER_TEMP/VulkanMemoryAllocator-build"
+          sudo ldconfig
+          test -f /usr/local/include/vk_mem_alloc.h
+          grep -q "VMA_VERSION 3.5.0" /usr/local/include/vk_mem_alloc.h
+
       - name: Build SDL3 for the Ubuntu 24.04 baseline
         run: |
           SDL_VERSION=3.4.20
