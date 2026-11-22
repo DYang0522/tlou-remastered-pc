@@ -131,7 +131,13 @@ static int overlay_join_path(char *out,size_t out_size,const char *root,const ch
     const size_t root_len=strlen(root), relative_len=strlen(relative);
     const int separator=root_len && relative_len &&
         root[root_len-1]!='/' && root[root_len-1]!='\\';
-    if (root_len>=out_size || relative_len>out_size-root_len-(size_t)separator-1) return -1;
+    if (root_len>=out_size) return -1;
+    size_t remaining=out_size-root_len;
+    if (separator) {
+        if (remaining<=1) return -1;
+        --remaining;
+    }
+    if (relative_len>=remaining) return -1;
     memcpy(out,root,root_len);
     size_t at=root_len;
     if (separator) out[at++]='/';
