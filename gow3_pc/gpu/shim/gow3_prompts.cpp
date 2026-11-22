@@ -30,6 +30,13 @@
 #include <unordered_set>
 #include <utility>
 
+// Keep the wide-path CRT calls on Windows, while using UTF-8 paths with stdio on Linux.
+#ifdef _WIN32
+#define GOW3_PROMPTS_FOPEN(path, mode) _wfopen((path).c_str(), L##mode)
+#else
+#define GOW3_PROMPTS_FOPEN(path, mode) std::fopen((path).c_str(), mode)
+#endif
+
 #include <xxhash.h>
 
 #include "../gow3gpu.h"
@@ -1787,7 +1794,7 @@ void DumpPrompt(const AmdGpu::Image& s0, const AmdGpu::Image& s1, Core::MemoryMa
     std::filesystem::create_directories(folder, error);
     char name[32];
     std::snprintf(name, sizeof(name), "%016llx.bin", static_cast<unsigned long long>(hash));
-    if (FILE* f = _wfopen((folder / name).c_str(), L"wb")) {
+    if (FILE* f = GOW3_PROMPTS_FOPEN((folder / name), "wb")) {
         const u32 header[4] = {0x44504c54u /* TLPD */, 1, u32(data[0].size()), u32(data[1].size())};
         const float quad[10] = {q.cx, q.cy, q.w, q.h, q.W, q.H, q.r, q.g, q.b, q.a};
         std::fwrite(header, sizeof(header), 1, f);
@@ -1799,7 +1806,7 @@ void DumpPrompt(const AmdGpu::Image& s0, const AmdGpu::Image& s1, Core::MemoryMa
         std::fwrite(data[1].data(), 1, data[1].size(), f);
         std::fclose(f);
     }
-    if (FILE* f = _wfopen((folder / "index.txt").c_str(), L"a")) {
+    if (FILE* f = GOW3_PROMPTS_FOPEN((folder / "index.txt"), "a")) {
         std::fprintf(f,
                      "%s colour 0x%llx alpha 0x%llx quad %.0f,%.0f %.0fx%.0f in %.0fx%.0f rgba %.2f %.2f %.2f %.2f "
                      "rule %d picture %016llx\n",
@@ -2024,7 +2031,7 @@ std::shared_ptr<const Sheet> LoadSheet() {
     }
     // Read into the heap: this runs on the game's pad fiber, whose stack is only 64 KiB.
     std::vector<u8> file(std::min<uintmax_t>(std::filesystem::file_size(path, error), 64u << 20));
-    if (FILE* f = _wfopen(path.c_str(), L"rb")) {
+    if (FILE* f = GOW3_PROMPTS_FOPEN(path, "rb")) {
         file.resize(std::fread(file.data(), 1, file.size(), f));
         std::fclose(f);
     } else {
@@ -2096,7 +2103,7 @@ void ExportDefaultSheet() {
         return;
     }
     const auto path = ConfigFolder() / "xbox-icons-default.png";
-    if (FILE* f = _wfopen(path.c_str(), L"wb")) {
+    if (FILE* f = GOW3_PROMPTS_FOPEN(path, "wb")) {
         std::fwrite(png, 1, len, f);
         std::fclose(f);
     }
@@ -2167,7 +2174,7 @@ void ExportPlayStationSheet(const u8* guest) {
     if (!png) {
         return;
     }
-    if (FILE* f = _wfopen((ConfigFolder() / "playstation-icons-reference.png").c_str(), L"wb")) {
+    if (FILE* f = GOW3_PROMPTS_FOPEN((ConfigFolder() / "playstation-icons-reference.png"), "wb")) {
         std::fwrite(png, 1, len, f);
         std::fclose(f);
     }
