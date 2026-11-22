@@ -19,72 +19,19 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config git patch curl rsync clang lld \
-            python3 python3-venv binutils file patchelf \
-            libvulkan-dev libvulkan-memory-allocator-dev \
-            libfmt-dev libboost-dev robin-map-dev libxxhash-dev libzydis-dev \
-            glslang-tools libspirv-cross-c-shared-dev \
-            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
-            libxinerama-dev libxss-dev libxtst-dev libxfixes-dev \
-            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
-            libdbus-1-dev libibus-1.0-dev libasound2-dev libpulse-dev \
-            libpipewire-0.3-dev libudev-dev libdrm-dev libgbm-dev \
-            libegl1-mesa-dev libgles2-mesa-dev libgl-dev libsamplerate0-dev
-
-      - name: Install current Khronos Vulkan-Headers
-        run: |
-          git clone --depth 1 --branch v1.4.368 https://github.com/KhronosGroup/Vulkan-Headers.git "$RUNNER_TEMP/Vulkan-Headers"
-          cmake -S "$RUNNER_TEMP/Vulkan-Headers" -B "$RUNNER_TEMP/Vulkan-Headers-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
-          cmake --build "$RUNNER_TEMP/Vulkan-Headers-build" --parallel 2
-          sudo cmake --install "$RUNNER_TEMP/Vulkan-Headers-build"
-          sudo ldconfig
-          test -f /usr/local/include/vulkan/vulkan.hpp
-
-      - name: Install current AMD Vulkan Memory Allocator
-        run: |
-          git clone --depth 1 --branch v3.5.0 https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git "$RUNNER_TEMP/VulkanMemoryAllocator"
-          cmake -S "$RUNNER_TEMP/VulkanMemoryAllocator" -B "$RUNNER_TEMP/VulkanMemoryAllocator-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DVMA_ENABLE_INSTALL=ON -DVMA_BUILD_SAMPLES=OFF
-          sudo cmake --install "$RUNNER_TEMP/VulkanMemoryAllocator-build"
-          sudo ldconfig
-          test -f /usr/local/include/vk_mem_alloc.h
-          grep -q "VMA_VERSION (VK_MAKE_VERSION(3, 5, 0))" /usr/local/include/vk_mem_alloc.h
-
-      - name: Build SDL3 for the Ubuntu 24.04 baseline
-        run: |
-          SDL_VERSION=3.4.20
-          SDL_ARCHIVE="$RUNNER_TEMP/SDL3-${SDL_VERSION}.tar.gz"
-          curl -fL "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz" -o "$SDL_ARCHIVE"
-          echo "f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f  $SDL_ARCHIVE" | sha256sum --check
-          tar -xzf "$SDL_ARCHIVE" -C "$RUNNER_TEMP"
-          cmake -S "$RUNNER_TEMP/SDL3-${SDL_VERSION}" -B "$RUNNER_TEMP/SDL3-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DSDL_SHARED=ON -DSDL_STATIC=OFF \
-            -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF
-          cmake --build "$RUNNER_TEMP/SDL3-build" --parallel 2
-          sudo cmake --install "$RUNNER_TEMP/SDL3-build"
-          sudo ldconfig
-          pkg-config --modversion sdl3
+      - name: Dependencies (same baseline as successful GOW3 Linux build)
+        run: bash gow3_pc/packaging/linux/ci-deps.sh
 
       - name: Build Linux runtime
         env:
           GOW3_PGO: off
           GOW3_LTO: "ON"
           GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
-          CC: clang
-          CXX: clang++
-          LDFLAGS: -fuse-ld=lld
+          CC: gcc-14
+          CXX: g++-14
         run: |
-          clang --version
-          clang++ --version
+          gcc --version
+          g++ --version
           git config --global core.autocrlf false
           bash gow3_pc/build.sh
           file gow3_pc/out/gow3-probe
@@ -99,9 +46,8 @@ jobs:
           GOW3_PGO: off
           GOW3_LTO: "ON"
           GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
-          CC: clang
-          CXX: clang++
-          LDFLAGS: -fuse-ld=lld
+          CC: gcc-14
+          CXX: g++-14
         run: bash gow3_pc/build.sh --test
 
       - name: Install game preparation Python dependency
