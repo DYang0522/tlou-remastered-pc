@@ -55,7 +55,7 @@ jobs:
           sudo cmake --install "$RUNNER_TEMP/VulkanMemoryAllocator-build"
           sudo ldconfig
           test -f /usr/local/include/vk_mem_alloc.h
-          grep -q "VMA_VERSION 3.5.0" /usr/local/include/vk_mem_alloc.h
+          grep -q "VMA_VERSION (VK_MAKE_VERSION(3, 5, 0))" /usr/local/include/vk_mem_alloc.h
 
       - name: Build SDL3 for the Ubuntu 24.04 baseline
         run: |
