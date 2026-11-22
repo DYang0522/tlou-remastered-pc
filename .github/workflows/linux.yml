@@ -1,0 +1,120 @@
+name: Linux build
+
+on:
+  push:
+    branches:
+      - linux-build
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config git patch curl rsync \
+            python3 binutils file patchelf \
+            libvulkan-dev libvulkan-memory-allocator-dev \
+            libfmt-dev libboost-dev robin-map-dev libxxhash-dev libzydis-dev \
+            glslang-tools libspirv-cross-c-shared-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxss-dev libxtst-dev libxfixes-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libdbus-1-dev libibus-1.0-dev libasound2-dev libpulse-dev \
+            libpipewire-0.3-dev libudev-dev libdrm-dev libgbm-dev \
+            libegl1-mesa-dev libgles2-mesa-dev libgl-dev libsamplerate0-dev
+
+      - name: Build SDL3 for the Ubuntu 24.04 baseline
+        run: |
+          SDL_VERSION=3.4.20
+          SDL_ARCHIVE="$RUNNER_TEMP/SDL3-${SDL_VERSION}.tar.gz"
+          curl -fL "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz" -o "$SDL_ARCHIVE"
+          echo "f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f  $SDL_ARCHIVE" | sha256sum --check
+          tar -xzf "$SDL_ARCHIVE" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/SDL3-${SDL_VERSION}" -B "$RUNNER_TEMP/SDL3-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF \
+            -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF
+          cmake --build "$RUNNER_TEMP/SDL3-build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/SDL3-build"
+          sudo ldconfig
+          pkg-config --modversion sdl3
+
+      - name: Build Linux runtime
+        env:
+          GOW3_PGO: off
+          GOW3_LTO: "ON"
+        run: |
+          git config --global core.autocrlf false
+          bash gow3_pc/build.sh
+          file gow3_pc/out/gow3-probe
+          file gow3_pc/out/gpu/libgow3gpu.so
+          ldd gow3_pc/out/gow3-probe | tee "$RUNNER_TEMP/runtime-ldd.txt"
+          ldd gow3_pc/out/gpu/libgow3gpu.so | tee "$RUNNER_TEMP/gpu-ldd.txt"
+          ! grep -q "not found" "$RUNNER_TEMP/runtime-ldd.txt"
+          ! grep -q "not found" "$RUNNER_TEMP/gpu-ldd.txt"
+
+      - name: Run native runtime tests
+        env:
+          GOW3_PGO: off
+          GOW3_LTO: "ON"
+        run: bash gow3_pc/build.sh --test
+
+      - name: Assemble Linux archive
+        run: |
+          STAGE="$RUNNER_TEMP/TLOU-Remastered-linux-x86_64"
+          mkdir -p "$STAGE" dist
+          rsync -a \
+            --exclude='/.git/' --exclude='*/.git/' \
+            --exclude='/dist/' --exclude='/analysis/' \
+            --exclude='/gow3_pc/out/' --exclude='/gow3_pc/pgo/' \
+            ./ "$STAGE/"
+          mkdir -p "$STAGE/gow3_pc/out/gpu"
+          install -m 755 gow3_pc/out/gow3-probe "$STAGE/gow3_pc/out/gow3-probe"
+          install -m 755 gow3_pc/out/gow3-gpu-capabilities "$STAGE/gow3_pc/out/gow3-gpu-capabilities"
+          install -m 755 gow3_pc/out/gpu/libgow3gpu.so "$STAGE/gow3_pc/out/gpu/libgow3gpu.so"
+          SDL3_LIB="$(ldconfig -p | awk '$1 == "libSDL3.so.0" {print $NF; exit}')"
+          test -n "$SDL3_LIB"
+          install -m 755 -D "$SDL3_LIB" "$STAGE/gow3_pc/out/libSDL3.so.0"
+          chmod 755 "$STAGE/Start-TLOU-Linux.sh"
+          {
+            echo "The Last of Us Remastered - Linux x86_64"
+            echo "Build OS: Ubuntu 24.04"
+            echo "Source commit: $GITHUB_SHA"
+            echo "SDL3: $(pkg-config --modversion sdl3)"
+            echo "No game files are included."
+          } > "$STAGE/BUILD-INFO.txt"
+          tar -C "$RUNNER_TEMP" -czf dist/TLOU-Remastered-linux-x86_64.tar.gz TLOU-Remastered-linux-x86_64
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TLOU-Remastered-linux-x86_64
+          path: dist/TLOU-Remastered-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TLOU-linux-build-logs
+          path: |
+            gow3_pc/out/gpu-build.log
+            ${{ runner.temp }}/runtime-ldd.txt
+            ${{ runner.temp }}/gpu-ldd.txt
+          if-no-files-found: ignore
+          retention-days: 14
