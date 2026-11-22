@@ -152,12 +152,17 @@ __attribute__((sysv_abi)) void *runtime_hud_quad(void *context, void *vertices, 
      * anywhere in the frame, so the save area is found above this function's locals by the saved
      * rdi and rsi (this call's first two arguments). */
     volatile uint64_t anchor = 0;
+    const uintptr_t stack_begin=(uintptr_t)&anchor;
+    const uintptr_t stack_end=stack_begin+1024;
     const char *saved = NULL;
-    for (const char *p = (const char *)&anchor; p < (const char *)&anchor + 1024; p += 8) {
+    /* This deliberately inspects the surrounding stack frame; use integer addresses rather than
+     * pointer arithmetic past the one-element anchor object (which GCC correctly diagnoses). */
+    for (uintptr_t address=stack_begin; address+sizeof(uint64_t)*2<=stack_end; address+=8) {
+        const char *p=(const char *)address;
         uint64_t rdi_rsi[2];
-        memcpy(rdi_rsi, p, sizeof(rdi_rsi));
+        memcpy(rdi_rsi,p,sizeof(rdi_rsi));
         if (rdi_rsi[0] == (uint64_t)(uintptr_t)context && rdi_rsi[1] == (uint64_t)(uintptr_t)vertices) {
-            saved = p - 0x80 - 4 * 8;
+            saved = (const char *)(address-0x80-4*8);
             break;
         }
     }
