@@ -24,7 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config git patch curl rsync \
-            python3 binutils file patchelf \
+            python3 python3-venv binutils file patchelf \
             libvulkan-dev libvulkan-memory-allocator-dev \
             libfmt-dev libboost-dev robin-map-dev libxxhash-dev libzydis-dev \
             glslang-tools libspirv-cross-c-shared-dev \
@@ -85,6 +85,12 @@ jobs:
           GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
         run: bash gow3_pc/build.sh --test
 
+      - name: Install game preparation Python dependency
+        run: |
+          python3 -m venv "$RUNNER_TEMP/tlou-venv"
+          "$RUNNER_TEMP/tlou-venv/bin/python" -m pip install --disable-pip-version-check --no-cache-dir --target gow3_pc/out/pydeps iced-x86
+          "$RUNNER_TEMP/tlou-venv/bin/python" -c "import sys; sys.path.insert(0, 'gow3_pc/out/pydeps'); import iced_x86; print('iced-x86:', iced_x86.__version__ if hasattr(iced_x86, '__version__') else 'installed')"
+
       - name: Assemble Linux archive
         run: |
           STAGE="$RUNNER_TEMP/TLOU-Remastered-linux-x86_64"
@@ -94,7 +100,8 @@ jobs:
             --exclude='/dist/' --exclude='/analysis/' \
             --exclude='/gow3_pc/out/' --exclude='/gow3_pc/pgo/' \
             ./ "$STAGE/"
-          mkdir -p "$STAGE/gow3_pc/out/gpu"
+          mkdir -p "$STAGE/gow3_pc/out/gpu" "$STAGE/gow3_pc/out/pydeps"
+          rsync -a gow3_pc/out/pydeps/ "$STAGE/gow3_pc/out/pydeps/"
           install -m 755 gow3_pc/out/gow3-probe "$STAGE/gow3_pc/out/gow3-probe"
           install -m 755 gow3_pc/out/gow3-gpu-capabilities "$STAGE/gow3_pc/out/gow3-gpu-capabilities"
           install -m 755 gow3_pc/out/gpu/libgow3gpu.so "$STAGE/gow3_pc/out/gpu/libgow3gpu.so"
