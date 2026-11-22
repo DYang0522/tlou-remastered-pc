@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config git patch curl rsync \
+            build-essential cmake ninja-build pkg-config git patch curl rsync clang lld \
             python3 python3-venv binutils file patchelf \
             libvulkan-dev libvulkan-memory-allocator-dev \
             libfmt-dev libboost-dev robin-map-dev libxxhash-dev libzydis-dev \
@@ -68,7 +68,12 @@ jobs:
           GOW3_PGO: off
           GOW3_LTO: "ON"
           GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
+          CC: clang
+          CXX: clang++
+          LDFLAGS: -fuse-ld=lld
         run: |
+          clang --version
+          clang++ --version
           git config --global core.autocrlf false
           bash gow3_pc/build.sh
           file gow3_pc/out/gow3-probe
@@ -83,6 +88,9 @@ jobs:
           GOW3_PGO: off
           GOW3_LTO: "ON"
           GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
+          CC: clang
+          CXX: clang++
+          LDFLAGS: -fuse-ld=lld
         run: bash gow3_pc/build.sh --test
 
       - name: Install game preparation Python dependency
