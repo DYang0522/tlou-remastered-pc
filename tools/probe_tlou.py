@@ -463,7 +463,9 @@ def image_patches(elf_path, out_path, patches, applied=None):
 
 
 def game_executable():
-    built = ROOT / "gow3_pc/out/gow3-probe.exe"
+    # The Windows and Linux builds produce different native executable names.
+    binary = "gow3-probe.exe" if os.name == "nt" else "gow3-probe"
+    built = ROOT / "gow3_pc/out" / binary
     if not built.is_file():
         raise SystemExit(f"Build the runtime first (gow3_pc/build.sh): {built} is missing")
     return built
