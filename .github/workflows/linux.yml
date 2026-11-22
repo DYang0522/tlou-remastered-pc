@@ -36,6 +36,16 @@ jobs:
             libpipewire-0.3-dev libudev-dev libdrm-dev libgbm-dev \
             libegl1-mesa-dev libgles2-mesa-dev libgl-dev libsamplerate0-dev
 
+      - name: Install current Khronos Vulkan-Headers
+        run: |
+          git clone --depth 1 --branch v1.4.368 https://github.com/KhronosGroup/Vulkan-Headers.git "$RUNNER_TEMP/Vulkan-Headers"
+          cmake -S "$RUNNER_TEMP/Vulkan-Headers" -B "$RUNNER_TEMP/Vulkan-Headers-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build "$RUNNER_TEMP/Vulkan-Headers-build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/Vulkan-Headers-build"
+          sudo ldconfig
+          test -f /usr/local/include/vulkan/vulkan.hpp
+
       - name: Build SDL3 for the Ubuntu 24.04 baseline
         run: |
           SDL_VERSION=3.4.20
@@ -57,6 +67,7 @@ jobs:
         env:
           GOW3_PGO: off
           GOW3_LTO: "ON"
+          GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
         run: |
           git config --global core.autocrlf false
           bash gow3_pc/build.sh
@@ -71,6 +82,7 @@ jobs:
         env:
           GOW3_PGO: off
           GOW3_LTO: "ON"
+          GOW3_VULKAN_INCLUDE_DIR: /usr/local/include
         run: bash gow3_pc/build.sh --test
 
       - name: Assemble Linux archive
