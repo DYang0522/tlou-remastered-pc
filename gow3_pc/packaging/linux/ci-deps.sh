@@ -22,7 +22,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 "${sudo_cmd[@]}" update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
 "${sudo_cmd[@]}" update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 140
-"${sudo_cmd[@]}" update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14
+"${sudo_cmd[@]}" update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 140
 
 echo "C compiler: $(gcc --version | head -1)"
 echo "C++ compiler: $(g++ --version | head -1)"
