@@ -14,6 +14,8 @@
 #include <pthread.h>
 #ifndef _WIN32
 #include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 #include <time.h>
 #include "gow3_copy.h"
@@ -41,6 +43,15 @@
 #include "video_core/renderer_vulkan/vk_runtime.h" // gow3: GOW3_READBACK_WAKE (scheduler)
 
 namespace AmdGpu {
+
+// The EOP trace is diagnostic-only; use the native OS thread ID on each host.
+static unsigned long Gow3CurrentThreadId() {
+#ifdef _WIN32
+    return Gow3CurrentThreadId();
+#else
+    return static_cast<unsigned long>(::syscall(SYS_gettid));
+#endif
+}
 
 static const char* dcb_task_name{"DCB_TASK"};
 static const char* ccb_task_name{"CCB_TASK"};
