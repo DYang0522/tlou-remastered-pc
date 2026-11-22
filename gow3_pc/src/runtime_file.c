@@ -124,6 +124,22 @@ static int overlay_key(const char *rest,char *key,size_t size) {
     key[n]=0;
     return (int)n;
 }
+
+/* Join two host path components without snprintf truncation. Overlay roots and relative names
+ * are bounded separately, so the combined path must be checked before copying. */
+static int overlay_join_path(char *out,size_t out_size,const char *root,const char *relative) {
+    const size_t root_len=strlen(root), relative_len=strlen(relative);
+    const int separator=root_len && relative_len &&
+        root[root_len-1]!='/' && root[root_len-1]!='\\';
+    if (root_len>=out_size || relative_len>out_size-root_len-(size_t)separator-1) return -1;
+    memcpy(out,root,root_len);
+    size_t at=root_len;
+    if (separator) out[at++]='/';
+    memcpy(out+at,relative,relative_len);
+    out[at+relative_len]=0;
+    return 0;
+}
+
 static int overlay_compare(const void *a,const void *b) { return strcmp(((const OverlayEntry *)a)->key,((const OverlayEntry *)b)->key); }
 static const OverlayEntry *overlay_find(const Overlay *o,const char *key) {
     OverlayEntry probe={(char *)key,NULL,0};
@@ -140,7 +156,7 @@ static void overlay_index(Overlay *o,const char *rel) {
         char child[1024], host[1100], key[1024];
         HostStat s;
         if ((size_t)snprintf(child,sizeof(child),"%s%s%s",rel,*rel ? "/" : "",e->d_name)>=sizeof(child)) continue;
-        snprintf(host,sizeof(host),"%s/%s",o->root,child);
+        if (overlay_join_path(host,sizeof(host),o->root,child)) continue;
         if (host_stat(host,&s) || overlay_key(child,key,sizeof(key))<=0) continue;
         if (o->count==o->capacity) {
             o->capacity=o->capacity ? o->capacity*2 : 256;
@@ -299,8 +315,13 @@ static void merge_layers(const char *guest,const char *chosen,Listing *l) {
     for (size_t i=0;i<overlay_count;++i) {
         const OverlayEntry *e=n ? overlay_find(&overlays[i],key) : NULL;
         if (n && (!e || !e->dir)) continue;
-        if (n) snprintf(layer,sizeof(layer),"%s/%s",overlays[i].root,e->rel);
-        else snprintf(layer,sizeof(layer),"%s",overlays[i].root);
+        if (n) {
+            if (overlay_join_path(layer,sizeof(layer),overlays[i].root,e->rel)) continue;
+        } else {
+            const size_t root_len=strlen(overlays[i].root);
+            if (root_len>=sizeof(layer)) continue;
+            memcpy(layer,overlays[i].root,root_len+1);
+        }
         if (strcmp(layer,chosen)) merge_listing(l,layer);
     }
 }
