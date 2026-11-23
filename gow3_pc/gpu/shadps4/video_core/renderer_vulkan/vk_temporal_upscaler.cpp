@@ -1742,7 +1742,7 @@ void TemporalUpscaler::RunScaled() {
                         vk::ImageLayout::eShaderReadOnlyOptimal,
                         vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderRead);
                 if (!fsr1_created) {
-                    fsr1_pass.Create(instance.GetDevice(), instance.GetAllocator(), 2);
+                    fsr1_pass.Create(instance.GetDevice(), instance.GetAllocator(), 2, false);
                     fsr1_created = true;
                 }
                 fsr1_pass.Render(cmdbuf, *output_view, {tw, th}, {ow, oh},
@@ -2044,7 +2044,7 @@ void TemporalUpscaler::UpscaleToUi(VideoCore::ImageId source) {
         };
         if (fsr1) {
             if (!fsr1_created) {
-                fsr1_pass.Create(instance.GetDevice(), instance.GetAllocator(), 2);
+                fsr1_pass.Create(instance.GetDevice(), instance.GetAllocator(), 2, false);
                 fsr1_created = true;
             }
             // EASU on the game's sRGB-encoded values (FSR 1's intended space), into a float
