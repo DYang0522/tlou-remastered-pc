@@ -115,7 +115,7 @@ static void psarc_note_sequential_read(int guest_fd,int host,int64_t offset,ssiz
     if (bytes<=0 || offset<0) return;
     pthread_mutex_lock(&lock);
     File *f=get(guest_fd);
-    if (!f || !f->path[0] || strlen(f->path)<6 ||
+    if (!f || f->host!=host || !f->path[0] || strlen(f->path)<6 ||
         strcasecmp(f->path+strlen(f->path)-6,".psarc")) {
         pthread_mutex_unlock(&lock);
         return;
