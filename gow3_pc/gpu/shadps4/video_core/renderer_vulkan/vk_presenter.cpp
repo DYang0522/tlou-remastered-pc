@@ -162,7 +162,7 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         free_queue.push(&frame);
     }
 
-    fsr_pass.Create(device, instance.GetAllocator(), num_images);
+    fsr_pass.Create(device, instance.GetAllocator(), num_images, instance.IsShaderFloat16Supported());
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
     Gow3Overlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images);
 
