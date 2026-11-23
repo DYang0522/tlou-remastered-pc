@@ -1,4 +1,4 @@
-/* Windows red-zone protection, the loader side: red_zone.c. */
+/* Guest rewrite table loader: ISA emulation on all platforms, red-zone protection on Windows. */
 #ifndef GOW3_RED_ZONE_H
 #define GOW3_RED_ZONE_H
 #include <stddef.h>
