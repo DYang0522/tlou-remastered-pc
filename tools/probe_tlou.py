@@ -687,6 +687,7 @@ def main():
     if update:
         command += ["--app0-overlay", str(update)]
     command += ["--guest-path", "/app0/eboot.bin"]
+    command += ["--timeout", "0"]  # Disable the native 10-second watchdog; --seconds controls the parent.
     # TLOU_CHEATS=<name>,...: the cheats above (default: flashlight, unless flashlight_fix=0 in
     # tlou.ini; "none": no cheats).
     # TLOU_FIXES=none leaves out the fixes.
