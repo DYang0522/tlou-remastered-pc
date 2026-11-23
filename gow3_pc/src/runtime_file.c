@@ -52,13 +52,118 @@ typedef struct {
 _Static_assert(sizeof(GuestStat)==120,"FreeBSD stat layout");
 
 typedef struct { char *names; size_t count, *offsets; unsigned char *types; } Listing;
-typedef struct { int used, host, traced; Listing *dir; size_t position; char path[512]; } File;
+typedef struct {
+    int used, host, traced;
+    Listing *dir;
+    size_t position;
+    char path[512];
+#ifndef _WIN32
+    off_t psarc_last_end, psarc_prefetched_until;
+    unsigned psarc_sequential;
+#endif
+} File;
 typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
 static size_t mount_count, opens, reads, writes, missing;
 static uint64_t bytes_read;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+
+#ifndef _WIN32
+/* Sequential PSARC reads on a mechanical disk benefit from page-cache readahead.
+ * The worker only issues kernel hints; game-thread reads remain synchronous and unchanged. */
+#define PSARC_READAHEAD_BYTES (2u*1024u*1024u)
+#define PSARC_READAHEAD_MAX_AHEAD (8u*1024u*1024u)
+#define PSARC_READAHEAD_QUEUE 8
+typedef struct { int fd; off_t offset; size_t length; } PsarcReadAheadTask;
+static struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t ready;
+    PsarcReadAheadTask tasks[PSARC_READAHEAD_QUEUE];
+    unsigned head, count;
+    pthread_once_t once;
+    int started;
+} psarc_readahead = {
+    .mutex=PTHREAD_MUTEX_INITIALIZER,
+    .ready=PTHREAD_COND_INITIALIZER,
+    .once=PTHREAD_ONCE_INIT
+};
+static void *psarc_readahead_worker(void *unused) {
+    (void)unused;
+    for (;;) {
+        pthread_mutex_lock(&psarc_readahead.mutex);
+        while (!psarc_readahead.count)
+            pthread_cond_wait(&psarc_readahead.ready,&psarc_readahead.mutex);
+        PsarcReadAheadTask task=psarc_readahead.tasks[psarc_readahead.head];
+        psarc_readahead.head=(psarc_readahead.head+1)%PSARC_READAHEAD_QUEUE;
+        --psarc_readahead.count;
+        pthread_mutex_unlock(&psarc_readahead.mutex);
+        (void)readahead(task.fd,(off64_t)task.offset,task.length);
+        close(task.fd);
+    }
+    return NULL;
+}
+static void psarc_readahead_start(void) {
+    pthread_t thread;
+    if (pthread_create(&thread,NULL,psarc_readahead_worker,NULL)) return;
+    pthread_detach(thread);
+    psarc_readahead.started=1;
+}
+/* Called after a successful pread. Two adjacent reads establish a sequential stream.
+ * A duplicated descriptor keeps queued work safe across guest close/reuse of its fd. */
+static void psarc_note_sequential_read(int guest_fd,int host,int64_t offset,ssize_t bytes) {
+    if (bytes<=0 || offset<0) return;
+    pthread_mutex_lock(&lock);
+    File *f=get(guest_fd);
+    if (!f || !f->path[0] || strlen(f->path)<6 ||
+        strcasecmp(f->path+strlen(f->path)-6,".psarc")) {
+        pthread_mutex_unlock(&lock);
+        return;
+    }
+    off_t end=(off_t)offset+(off_t)bytes;
+    if (end<(off_t)offset) {
+        f->psarc_sequential=0;
+        f->psarc_last_end=0;
+        f->psarc_prefetched_until=0;
+        pthread_mutex_unlock(&lock);
+        return;
+    }
+    if (f->psarc_sequential && (off_t)offset==f->psarc_last_end) {
+        if (f->psarc_sequential<UINT_MAX) ++f->psarc_sequential;
+    } else {
+        f->psarc_sequential=1;
+        f->psarc_prefetched_until=end;
+    }
+    f->psarc_last_end=end;
+    if (f->psarc_sequential>=2 && end>=f->psarc_prefetched_until &&
+        end-f->psarc_prefetched_until<=PSARC_READAHEAD_MAX_AHEAD) {
+        struct stat st;
+        if (!fstat(host,&st) && end<st.st_size) {
+            off_t remaining=st.st_size-end;
+            size_t amount=(size_t)(remaining<(off_t)PSARC_READAHEAD_BYTES ?
+                                   remaining : (off_t)PSARC_READAHEAD_BYTES);
+            int copy=amount ? dup(host) : -1;
+            if (copy>=0) {
+                pthread_once(&psarc_readahead.once,psarc_readahead_start);
+                if (psarc_readahead.started) {
+                    pthread_mutex_lock(&psarc_readahead.mutex);
+                    if (psarc_readahead.count<PSARC_READAHEAD_QUEUE) {
+                        unsigned tail=(psarc_readahead.head+psarc_readahead.count)%PSARC_READAHEAD_QUEUE;
+                        psarc_readahead.tasks[tail]=(PsarcReadAheadTask){copy,end,amount};
+                        ++psarc_readahead.count;
+                        f->psarc_prefetched_until=end+(off_t)amount;
+                        pthread_cond_signal(&psarc_readahead.ready);
+                        copy=-1;
+                    }
+                    pthread_mutex_unlock(&psarc_readahead.mutex);
+                }
+                if (copy>=0) close(copy);
+            }
+        }
+    }
+    pthread_mutex_unlock(&lock);
+}
+#endif
 
 int runtime_file_mount(const char *guest,const char *host) {
     pthread_mutex_lock(&lock);
@@ -534,6 +639,9 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     touch_for_write(buffer,size);
     uint64_t touched=file_now_ns();
     ssize_t n=pread(h,buffer,size,offset);
+#ifndef _WIN32
+    if (n>0) psarc_note_sequential_read(fd,h,offset,n);
+#endif
     note_read(fd,started,touched,n);
     if (file_traced(fd) && file_trace_line())
         printf("File trace: pread(fd %d, %llu @%lld) -> %lld (errno %d)\n",fd,(unsigned long long)size,
