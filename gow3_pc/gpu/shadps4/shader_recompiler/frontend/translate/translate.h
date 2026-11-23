@@ -380,6 +380,8 @@ private:
     void SetDstPk(const InstOperand& operand, const pk_type<T>& value);
 
     // Vector ALU Helpers
+    /// Convert f32 to f16 bits without requiring shaderFloat16 when the device lacks it.
+    IR::U32 F32ToF16Bits(const IR::F32& value);
     IR::U32 GetCarryIn(const GcnInst& inst);
     void SetCarryOut(const GcnInst& inst, const IR::U1& carry);
     IR::U32 VMovRelSHelper(u32 src_vgprno, const IR::U32 m0);
