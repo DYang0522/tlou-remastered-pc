@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     steps:
       - name: Check out source and submodules
@@ -19,7 +19,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Dependencies (same baseline as successful GOW3 Linux build)
+      - name: Verify Ubuntu 26.04 runner
+        run: |
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 26.04
+          cat /etc/os-release
+
+      - name: Dependencies (Ubuntu 26.04 native runtime)
         run: bash gow3_pc/packaging/linux/ci-deps.sh
 
       - name: Build Linux runtime
@@ -82,11 +89,21 @@ jobs:
           test -n "$SDL3_LIB"
           install -m 755 -D "$SDL3_LIB" "$STAGE/gow3_pc/out/libSDL3.so.0"
           chmod 755 "$STAGE/Start-TLOU-Linux.sh" "$STAGE/Start-TLOU-Launcher.sh"
+          export LD_LIBRARY_PATH="$STAGE/gow3_pc/out${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ldd "$STAGE/gow3_pc/out/gow3-probe" | tee "$RUNNER_TEMP/staged-runtime-ldd.txt"
+          ldd "$STAGE/gow3_pc/out/gpu/libgow3gpu.so" | tee "$RUNNER_TEMP/staged-gpu-ldd.txt"
+          ! grep -q "not found" "$RUNNER_TEMP/staged-runtime-ldd.txt"
+          ! grep -q "not found" "$RUNNER_TEMP/staged-gpu-ldd.txt"
           {
             echo "The Last of Us Remastered - Linux x86_64"
-            echo "Build OS: Ubuntu 24.04"
+            echo "Build OS: Ubuntu 26.04"
             echo "Source commit: $GITHUB_SHA"
+            echo "Compiler: $(g++-14 --version | head -1)"
+            echo "FFmpeg: $(pkg-config --modversion libavcodec)"
+            echo "fmt: $(dpkg-query -W -f='${Version}' libfmt-dev)"
+            echo "Zydis: $(dpkg-query -W -f='${Version}' libzydis-dev)"
             echo "SDL3: $(pkg-config --modversion sdl3)"
+            echo "Host runtime packages: FFmpeg 8, fmt 10, Zydis 4.1, Vulkan driver, X11/Wayland."
             echo "No game files are included."
           } > "$STAGE/BUILD-INFO.txt"
           tar -C "$RUNNER_TEMP" -czf dist/TLOU-Remastered-linux-x86_64.tar.gz TLOU-Remastered-linux-x86_64
@@ -108,5 +125,7 @@ jobs:
             gow3_pc/out/gpu-build.log
             ${{ runner.temp }}/runtime-ldd.txt
             ${{ runner.temp }}/gpu-ldd.txt
+            ${{ runner.temp }}/staged-runtime-ldd.txt
+            ${{ runner.temp }}/staged-gpu-ldd.txt
           if-no-files-found: ignore
           retention-days: 14
