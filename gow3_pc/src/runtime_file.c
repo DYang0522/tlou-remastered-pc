@@ -166,6 +166,24 @@ static void psarc_note_sequential_read(int guest_fd,int host,int64_t offset,ssiz
 }
 #endif
 
+#ifdef __linux__
+/* Start warming the archive before its first game-thread read. */
+static void psarc_prepare_open(int host,const char *path) {
+    if (!path || strlen(path)<6 || strcasecmp(path+strlen(path)-6,".psarc")) return;
+    (void)posix_fadvise(host,0,0,POSIX_FADV_SEQUENTIAL);
+    (void)readahead(host,0,PSARC_READAHEAD_BYTES);
+}
+static int psarc_read_offset(int guest_fd,int host,off_t *offset) {
+    File *f=get(guest_fd);
+    if (!f || !f->used || f->host!=host || !f->path[0] ||
+        strlen(f->path)<6 || strcasecmp(f->path+strlen(f->path)-6,".psarc")) return 0;
+    off_t current=lseek(host,0,SEEK_CUR);
+    if (current<0) return 0;
+    *offset=current;
+    return 1;
+}
+#endif
+
 int runtime_file_mount(const char *guest,const char *host) {
     pthread_mutex_lock(&lock);
     for (size_t i=0;i<mount_count;++i) if (!strcmp(mounts[i].guest,guest)) {
@@ -527,6 +545,9 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     Listing *dir=NULL;
     if (!fstat(host,&s) && S_ISDIR(s.st_mode) && (dir=list_directory(path))) merge_layers(guest,path,dir);
 #endif
+#ifdef __linux__
+    psarc_prepare_open(host,guest);
+#endif
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
@@ -625,7 +646,14 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     uint64_t started=file_now_ns();
     touch_for_write(buffer,size);
     uint64_t touched=file_now_ns();
+#ifdef __linux__
+    off_t read_offset=0;
+    int track_psarc=psarc_read_offset(fd,h,&read_offset);
+#endif
     ssize_t n=host_read(h,buffer,size);
+#ifdef __linux__
+    if (track_psarc && n>0) psarc_note_sequential_read(fd,h,read_offset,n);
+#endif
     note_read(fd,started,touched,n);
     if (file_traced(fd) && file_trace_line())
         printf("File trace: read(fd %d, %llu) -> %lld (errno %d)\n",fd,(unsigned long long)size,(long long)n,n<0 ? errno : 0);
