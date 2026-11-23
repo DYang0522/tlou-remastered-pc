@@ -2,7 +2,7 @@
 
 # The Last of Us Remastered — PC Port
 
-**The PS4 *The Last of Us Remastered* running natively on Windows.**
+**The PS4 *The Last of Us Remastered* running natively on Windows, with an experimental Ubuntu Linux build.**
 
 [![Release](https://img.shields.io/github/v/release/ravencaio/tlou-remastered-pc?style=for-the-badge&color=2e7d32&label=release)](https://github.com/ravencaio/tlou-remastered-pc/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ravencaio/tlou-remastered-pc/total?style=for-the-badge&color=1565c0)](https://github.com/ravencaio/tlou-remastered-pc/releases)
@@ -22,13 +22,13 @@
 
 ---
 
-Runs the PS4 **The Last of Us Remastered** (CUSA00552, with its update 1.11) natively on Windows.
+Runs the PS4 **The Last of Us Remastered** (CUSA00559, with its update 1.11) natively on Windows, with an experimental Linux build on the `linux-build` branch.
 The game's own x86-64 code runs directly on the PC; a runtime supplies the PS4 system libraries,
 and a Vulkan renderer (the shadPS4 video core) executes the PS4 GPU work.
 
 > [!IMPORTANT]
 > **No game files are in this repository.** You need your own copy of the game (the dumped
-> CUSA00552 folder, and its update). This project is not affiliated with Sony Interactive
+> CUSA00559 folder, and its update). This project is not affiliated with Sony Interactive
 > Entertainment or Naughty Dog.
 
 ## ❤️ Support the project
@@ -218,22 +218,29 @@ the update recompiles the materials' shaders once.
 
 ## 🐧 Linux (experimental build)
 
-The `linux-build` branch includes an Ubuntu 24.04 x86-64 build workflow. It builds the existing
-Linux runtime path (`gow3_pc/out/gow3-probe` and `libgow3gpu.so`); the Windows release and its
-launcher are unchanged. This is an experimental command-line launch path, not a Linux port of the
-Windows Tkinter launcher.
+The `linux-build` branch includes an Ubuntu 24.04 x86-64 build with the Linux Tkinter launcher
+and a command-line fallback. The launcher can be opened **before the game files are installed**:
+you can browse folders and configure settings; Play becomes available once the game and runtime
+are present.
 
 1. Download the `TLOU-Remastered-linux-x86_64` artifact from the **Linux build** workflow and
-   extract it.
-2. Use your own dumped `CUSA00552` game folder with update 1.11. The update can be kept beside
-   the game as `CUSA00552-patch`, as on Windows; no game files are included in the archive.
-3. Start it from a terminal:
-   `bash Start-TLOU-Linux.sh /path/to/CUSA00552`
+   extract it (the ZIP contains a `.tar.gz`; extract that too).
+2. If Tkinter is not installed, install it once:
+   `sudo apt install python3-tk`.
+3. Open the graphical launcher:
+   `bash Start-TLOU-Launcher.sh`.
+4. In **Folders**, select your own decrypted `CUSA00559` game folder. Use its 01.11 update in a
+   sibling folder named `CUSA00559-patch` or `CUSA00559-update`. No game files are included.
+5. Press **Play**.
 
-You can omit the path when the game folder is named `CUSA00552` and sits beside the extracted
-project folder, or set `TLOU_GAME_DIR=/path/to/CUSA00552`. The launcher writes logs and settings
-under `analysis/tlou` and `analysis/tlou-user`. The archive carries SDL3; the host still needs a
-Vulkan 1.3 driver and the Ubuntu 24.04 runtime libraries for FFmpeg, X11/Wayland and Vulkan.
+The launcher keeps settings and logs under `analysis/tlou-user` and `analysis/tlou`.
+For terminal-only use, the fallback remains:
+`bash Start-TLOU-Linux.sh /path/to/CUSA00559`.
+
+The Linux runtime still requires a **Vulkan 1.3 driver** and the Ubuntu 24.04 runtime libraries
+for FFmpeg, X11/Wayland and Vulkan. The FP32 shader fallback described in the credits removes
+the shaderFloat16 requirement on unsupported GPUs; it does **not** lower the Vulkan API
+requirement from 1.3 to 1.2.
 
 ## 🎮 Playing
 
@@ -248,8 +255,8 @@ the launcher.
 
 Needs Python 3.10 or newer.
 
-1. Put the game folder `CUSA00552` next to this repository's folder, and the update next to it as
-   `CUSA00552-patch` (or name another update folder with `TLOU_UPDATE=<folder>`). An update you
+1. Put the game folder `CUSA00559` next to this repository's folder, and the update next to it as
+   `CUSA00559-patch` (or name another update folder with `TLOU_UPDATE=<folder>`). An update you
    only have as a PKG unpacks there with `python tools/install_update.py <update.pkg> <game folder>`.
 2. Build the runtime (below), then start the game with `launcher/TLOU Launcher.exe`,
    `Start-TLOU.cmd`, or `python tools/probe_tlou.py --boot --seconds 0 [--game <game folder>]`.
@@ -443,6 +450,14 @@ in `launcher/assets/icon.ico` (not in the repository).
   (MIT). NVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation.
 - AMD FSR 4: the v07 INT8 model as built by [Q2RTX](https://github.com/FireBurn/Q2RTX) from AMD's
   MIT-licensed FidelityFX SDK source.
+- The no-`shaderFloat16` path (FP32 conversion helper and FSR FP32 shader variants) is adapted from
+  [`DYang0522/gow3` branch `fp32-gcn1`](https://github.com/DYang0522/gow3/tree/fp32-gcn1), based on the
+  [SpartanPort issue #1064](https://github.com/FelipePrado0/SpartanPort/issues/1064) and
+  [Bradley7900's `fp32-gcn1` patch](https://github.com/FelipePrado0/SpartanPort/compare/main...Bradley7900:SpartanPort:fp32-gcn1).
+  The RADV sparse flags from that patch are not included: they target GCN 1.0/GFX6, not the Radeon
+  R9 290X (GCN 2.0). This shader fallback does not provide Vulkan 1.2 API support; Vulkan 1.3
+  remains required. The executable patch offsets were originally derived from CUSA00552 01.11
+  and are byte-signature checked before use on CUSA00559.
 - Third-party code: FSR (AMD), imgui, magic_enum, miniz, xbyak, LibAtrac9, FFmpeg, SDL3, PkgTool
   (LibOrbisPkg, LGPL-3.0).
 - Licensed under the GNU GPL v2 or later (see `LICENSE`).
