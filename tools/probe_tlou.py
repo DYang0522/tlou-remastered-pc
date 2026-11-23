@@ -548,9 +548,10 @@ def main():
         isa_names = list(cpu_features.FEATURE_KINDS)
     else:
         isa_names = cpu_features.missing_emulatable() or []
-    # Windows red-zone protection (gow3_pc/scripts/red_zone.py): GOW3_RED_ZONE_REWRITE=0 turns it off.
+    # The SysV ABI already preserves the red zone on Linux; only Windows needs the
+    # stack-fault protection. Both platforms use the table for Sandy/Ivy ISA emulation.
     red_zone = None
-    want_red_zone = os.environ.get("GOW3_RED_ZONE_REWRITE") != "0"
+    want_red_zone = os.name == "nt" and os.environ.get("GOW3_RED_ZONE_REWRITE") != "0"
     if want_red_zone or isa_names:
         command = [sys.executable, str(scripts / "red_zone_table.py"), str(out / "boot-linked.bin"), "--out", str(out)]
         if not want_red_zone:
