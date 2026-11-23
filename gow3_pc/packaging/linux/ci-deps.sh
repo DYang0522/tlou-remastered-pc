@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Linux build dependencies, aligned with the successful GOW3 Ubuntu 24.04 CI.
-# Ubuntu 24.04's stock GCC 13 is too old for the C++23 features in the Vulkan renderer.
-# Keep the proven GOW3 toolchain and dependency versions here; TLOU-only packages are added below.
+# Linux build dependencies for the native Ubuntu 26.04 build.
+# Keep GCC 14, which was already used by the successful Ubuntu 24.04 build, while
+# using Ubuntu 26.04's native FFmpeg 8, fmt 10 and Zydis 4.1 development packages.
 set -euo pipefail
+
+. /etc/os-release
+if [[ ${ID:-} != ubuntu || ${VERSION_ID:-} != 26.04 ]]; then
+    echo "This dependency script targets Ubuntu 26.04; detected ${PRETTY_NAME:-unknown}." >&2
+    exit 1
+fi
 
 sudo_cmd=()
 if [[ $(id -u) -ne 0 ]]; then sudo_cmd=(sudo); fi
@@ -56,5 +62,8 @@ ninja -C "$work/sdl" >/dev/null
 echo "Vulkan-Headers: $VULKAN_HEADERS"
 echo "VMA: $VMA"
 echo "SDL3: $(pkg-config --modversion sdl3)"
+echo "FFmpeg: $(pkg-config --modversion libavcodec)"
+echo "fmt: $(dpkg-query -W -f='${Version}' libfmt-dev)"
+echo "Zydis: $(dpkg-query -W -f='${Version}' libzydis-dev)"
 test -f /usr/local/include/vulkan/vulkan.hpp
 test -f /usr/local/include/vk_mem_alloc.h
