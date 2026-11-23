@@ -12,19 +12,35 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-26.04
+    # Ubuntu 26.04 cloud VMs are amd64v3 by default. Build in the official generic
+    # amd64 container so the produced ELF files remain runnable on Sandy Bridge.
+    container:
+      image: ubuntu:26.04
+      options: --user root
     timeout-minutes: 120
     steps:
+      - name: Prepare container for checkout
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git
+
       - name: Check out source and submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Verify Ubuntu 26.04 runner
+      - name: Verify generic Ubuntu 26.04 amd64 build environment
         run: |
           . /etc/os-release
           test "$ID" = ubuntu
           test "$VERSION_ID" = 26.04
+          test "$(dpkg --print-architecture)" = amd64
+          if apt-config dump | grep -Eqi 'APT::Architecture-Variants.*amd64v3'; then
+            echo 'Refusing an amd64v3 package environment; this build must target Sandy Bridge.' >&2
+            exit 1
+          fi
           cat /etc/os-release
+          apt-config dump | grep -i 'Architecture-Variants' || true
 
       - name: Dependencies (Ubuntu 26.04 native runtime)
         run: bash gow3_pc/packaging/linux/ci-deps.sh
@@ -65,8 +81,8 @@ jobs:
 
       - name: Test Linux GUI launcher without game files
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-tk xvfb
+          apt-get update
+          apt-get install -y --no-install-recommends python3-tk xvfb
           export LD_LIBRARY_PATH="$PWD/gow3_pc/out${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           export PYTHONPATH="$PWD/gow3_pc/out/pydeps${PYTHONPATH:+:$PYTHONPATH}"
           xvfb-run -a python3 launcher/tlou_launcher.pyw --close-after 2
@@ -88,6 +104,27 @@ jobs:
           SDL3_LIB="$(ldconfig -p | awk '$1 == "libSDL3.so.0" {print $NF; exit}')"
           test -n "$SDL3_LIB"
           install -m 755 -D "$SDL3_LIB" "$STAGE/gow3_pc/out/libSDL3.so.0"
+          # glibc rejects ELF files marked as needing x86-64-v3 on Sandy Bridge.
+          # Check each shipped ELF and the shared objects it will load, not just compiler flags.
+          check_isa_level() {
+            local elf="$1" notes
+            notes="$(readelf -n "$elf" 2>/dev/null || true)"
+            printf '%s\\n' "$notes" | grep -E 'x86 ISA needed' || true
+            if grep -Eq 'x86 ISA needed:.*x86-64-v[34]' <<< "$notes"; then
+              echo "ERROR: $elf requires x86-64-v3/v4; Sandy Bridge only supports up to v2." >&2
+              return 1
+            fi
+          }
+          for elf in \\
+            "$STAGE/gow3_pc/out/gow3-probe" \\
+            "$STAGE/gow3_pc/out/gow3-gpu-capabilities" \\
+            "$STAGE/gow3_pc/out/gpu/libgow3gpu.so" \\
+            "$STAGE/gow3_pc/out/libSDL3.so.0"; do
+            check_isa_level "$elf"
+            while IFS= read -r dep; do
+              [[ -f "$dep" ]] && check_isa_level "$dep"
+            done < <(ldd "$elf" | awk '{ for (i=1; i<=NF; ++i) if ($i ~ /^\\//) print $i }' | sort -u)
+          done
           chmod 755 "$STAGE/Start-TLOU-Linux.sh" "$STAGE/Start-TLOU-Launcher.sh"
           export LD_LIBRARY_PATH="$STAGE/gow3_pc/out${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           ldd "$STAGE/gow3_pc/out/gow3-probe" | tee "$RUNNER_TEMP/staged-runtime-ldd.txt"
