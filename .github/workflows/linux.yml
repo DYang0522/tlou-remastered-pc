@@ -56,6 +56,14 @@ jobs:
           "$RUNNER_TEMP/tlou-venv/bin/python" -m pip install --disable-pip-version-check --no-cache-dir --target gow3_pc/out/pydeps iced-x86==1.21.0 Pillow
           "$RUNNER_TEMP/tlou-venv/bin/python" -c "import sys; sys.path.insert(0, 'gow3_pc/out/pydeps'); import iced_x86; print('iced-x86:', iced_x86.__version__ if hasattr(iced_x86, '__version__') else 'installed')"
 
+      - name: Test Linux GUI launcher without game files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb
+          export LD_LIBRARY_PATH="$PWD/gow3_pc/out${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export PYTHONPATH="$PWD/gow3_pc/out/pydeps${PYTHONPATH:+:$PYTHONPATH}"
+          xvfb-run -a python3 launcher/tlou_launcher.pyw --close-after 2
+
       - name: Assemble Linux archive
         run: |
           STAGE="$RUNNER_TEMP/TLOU-Remastered-linux-x86_64"
@@ -73,7 +81,7 @@ jobs:
           SDL3_LIB="$(ldconfig -p | awk '$1 == "libSDL3.so.0" {print $NF; exit}')"
           test -n "$SDL3_LIB"
           install -m 755 -D "$SDL3_LIB" "$STAGE/gow3_pc/out/libSDL3.so.0"
-          chmod 755 "$STAGE/Start-TLOU-Linux.sh"
+          chmod 755 "$STAGE/Start-TLOU-Linux.sh" "$STAGE/Start-TLOU-Launcher.sh"
           {
             echo "The Last of Us Remastered - Linux x86_64"
             echo "Build OS: Ubuntu 24.04"
