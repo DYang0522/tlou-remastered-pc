@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-GAME_DIR="${TLOU_GAME_DIR:-$ROOT/../CUSA00552}"
+GAME_DIR="${TLOU_GAME_DIR:-$ROOT/../CUSA00559}"
 if [[ $# -gt 0 && -d "$1" ]]; then
     GAME_DIR="$1"
     shift
@@ -18,8 +18,8 @@ fi
 
 if [[ ! -f "$GAME_DIR/eboot.bin" ]]; then
     echo "The game folder does not contain eboot.bin: $GAME_DIR" >&2
-    echo "Usage: bash Start-TLOU-Linux.sh [/path/to/CUSA00552]" >&2
-    echo "Or set TLOU_GAME_DIR=/path/to/CUSA00552." >&2
+    echo "Usage: bash Start-TLOU-Linux.sh [/path/to/CUSA00559]" >&2
+    echo "Or set TLOU_GAME_DIR=/path/to/CUSA00559." >&2
     exit 2
 fi
 
