@@ -17,7 +17,7 @@ public:
         float rcas_attenuation{0.25f};
     };
 
-    void Create(vk::Device device, VmaAllocator allocator, u32 num_images);
+    void Create(vk::Device device, VmaAllocator allocator, u32 num_images, bool use_fp16);
 
     /// input_size is the part read, from the top-left of an input image of input_image_size
     /// (the same when empty). The output (R16G16B16A16Sfloat) is left shader-read-only.
