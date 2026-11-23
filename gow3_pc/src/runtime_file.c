@@ -57,7 +57,7 @@ typedef struct {
     Listing *dir;
     size_t position;
     char path[512];
-#ifndef _WIN32
+#ifdef __linux__
     off_t psarc_last_end, psarc_prefetched_until;
     unsigned psarc_sequential;
 #endif
@@ -69,7 +69,7 @@ static size_t mount_count, opens, reads, writes, missing;
 static uint64_t bytes_read;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 
-#ifndef _WIN32
+#ifdef __linux__
 /* Sequential PSARC reads on a mechanical disk benefit from page-cache readahead.
  * The worker only issues kernel hints; game-thread reads remain synchronous and unchanged. */
 #define PSARC_READAHEAD_BYTES (2u*1024u*1024u)
@@ -639,7 +639,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     touch_for_write(buffer,size);
     uint64_t touched=file_now_ns();
     ssize_t n=pread(h,buffer,size,offset);
-#ifndef _WIN32
+#ifdef __linux__
     if (n>0) psarc_note_sequential_read(fd,h,offset,n);
 #endif
     note_read(fd,started,touched,n);
