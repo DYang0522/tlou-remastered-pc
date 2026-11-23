@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Last of Us Remastered (CUSA00552): prepare the executable and start it in the runtime.
+"""The Last of Us Remastered (CUSA00559): prepare the executable and start it in the runtime.
 
 Without --boot it only lists the PS4 imports the runtime does not provide (--check-imports).
 The update (a folder next to the game named like it plus -patch) is laid over the game: its
@@ -58,6 +58,18 @@ def app_version(folder):
     try:
         from prepare import sfo
         return sfo((folder / "sce_sys/param.sfo").read_bytes()).get("APP_VER")
+    except (OSError, ValueError, ImportError):
+        return None
+    finally:
+        sys.path.pop(0)
+
+
+def app_title_id(folder):
+    """TITLE_ID from the folder's param.sfo, or None if it cannot be read."""
+    sys.path.insert(0, str(ROOT / "gow3_pc/scripts"))
+    try:
+        from prepare import sfo
+        return sfo((folder / "sce_sys/param.sfo").read_bytes()).get("TITLE_ID")
     except (OSError, ValueError, ImportError):
         return None
     finally:
@@ -137,15 +149,8 @@ CHEATS = {
 # spinning (pause at 0xC87D65). The flag is treated as on in the worker loop, its re-check before
 # waiting and the submit path, as in the Uncharted ports of the same engine.
 JOB_SLEEP = [(0xC87D63, "7304", "EB04"), (0xC87D96, "741B", "9090"), (0xC873E1, "742D", "9090")]
-# Every language in the game's menus (issue #156; TLOU_ALL_LANGUAGES=0 keeps the Americas set). The
-# executable holds one product config per regional release (product-config.cpp, registered at
-# 0x41340) and picks it by USER_DEFINED_PARAM_1 of param.sfo (552 here). Its language mask (+0x1b0)
-# is English, French, Latin American Spanish and Brazilian Portuguese for CUSA00552; bits 0-20 are
-# the game's 21 languages (languagemanager.cpp table at 0xbe8b40). The text of all of them is in
-# core.psarc and patch.psarc. A dub (German, Italian, Spanish, Portuguese, Polish, Russian,
-# Japanese) needs the other region's <language>-sp/-mp.psarc in sound1/streams/speech; without it
-# the runtime's PlayGo reports that chunk as not downloaded and the game speaks English. Korean
-# and Chinese are offered only with that system language (GOW3_LANGUAGE 9, 10 or 11).
+# CUSA00552's all-languages mask is retained as an explicit opt-in only. It is a
+# region-specific product-config patch and is not assumed to match CUSA00559.
 ALL_LANGUAGES = [(0x1518720, "03000300", "FFFF1F00")]
 # The dialogue languages of the menu (languagemanager, 0xbe98e4..): one `cmp byte [rdx+X], 0; je`
 # per dub adds it to the list when its language is on. A dub whose speech file is in neither the
@@ -473,7 +478,7 @@ def game_executable():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--game", type=Path, default=ROOT.parent / "CUSA00552")
+    parser.add_argument("--game", type=Path, default=ROOT.parent / "CUSA00559")
     parser.add_argument("--boot", action="store_true", help="Execute the game after preparation")
     parser.add_argument("--cpu-only", action="store_true")
     parser.add_argument("--seconds", type=int, default=60, help="Process time limit; 0 disables it")
@@ -484,7 +489,14 @@ def main():
                              "player's): a test profile leaves the player's saves alone")
     args = parser.parse_args()
     game = args.game.resolve()
+    title_id = app_title_id(game)
+    if title_id != "CUSA00559":
+        raise SystemExit(f"This build requires CUSA00559; found {title_id or 'no TITLE_ID'} in {game}")
     update = find_update(game)
+    if update:
+        update_title_id = app_title_id(update)
+        if update_title_id != "CUSA00559":
+            raise SystemExit(f"The update folder must also be CUSA00559; found {update_title_id or 'no TITLE_ID'} in {update}")
     if update:
         print(f"Game {game} (version {app_version(game)}) with its update {update} "
               f"(version {app_version(update)}): the update's executable and files are used", flush=True)
@@ -555,8 +567,9 @@ def main():
     env = dict(os.environ)
     if isa_names and not cpu_features.missing_blocking():
         env["GOW3_CPU_CHECK"] = "0"           # the runtime would stop on the sets that are emulated now
-    msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))
-    env["PATH"] = str(msys / "clang64/bin") + os.pathsep + env.get("PATH", "")
+    if os.name == "nt":
+        msys = Path(os.environ.get("MSYS2_ROOT", "C:/msys64"))
+        env["PATH"] = str(msys / "clang64/bin") + os.pathsep + env.get("PATH", "")
     env["GOW3_GPU_USER_DIR"] = str(user)
     # The shader cache: analysis/tlou-user/cache or, when that is a link (a junction to an SSD,
     # README), the folder it points to.
@@ -683,8 +696,9 @@ def main():
         patches["pro-shadows"] = PRO_SHADOWS
     if os.environ.get("TLOU_AMBIENT_SHADOWS") != "quarter":
         patches["ambient-shadows-half"] = AMBIENT_SHADOWS_HALF
-    if os.environ.get("TLOU_ALL_LANGUAGES") != "0":
+    if os.environ.get("TLOU_ALL_LANGUAGES") == "1":
         patches["all-languages"] = ALL_LANGUAGES
+    if os.environ.get("TLOU_ALL_LANGUAGES") != "0":
         dubs, missing = missing_dubs_patch([game, update])
         if dubs:
             patches["dubs without files hidden"] = dubs
