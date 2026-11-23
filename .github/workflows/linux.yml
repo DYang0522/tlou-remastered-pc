@@ -22,7 +22,7 @@ jobs:
       - name: Prepare container for checkout
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git
+          apt-get install -y --no-install-recommends ca-certificates git rsync
 
       - name: Check out source and submodules
         uses: actions/checkout@v4
@@ -109,21 +109,17 @@ jobs:
           check_isa_level() {
             local elf="$1" notes
             notes="$(readelf -n "$elf" 2>/dev/null || true)"
-            printf '%s\\n' "$notes" | grep -E 'x86 ISA needed' || true
+            printf '%s\n' "$notes" | grep -E 'x86 ISA needed' || true
             if grep -Eq 'x86 ISA needed:.*x86-64-v[34]' <<< "$notes"; then
               echo "ERROR: $elf requires x86-64-v3/v4; Sandy Bridge only supports up to v2." >&2
               return 1
             fi
           }
-          for elf in \\
-            "$STAGE/gow3_pc/out/gow3-probe" \\
-            "$STAGE/gow3_pc/out/gow3-gpu-capabilities" \\
-            "$STAGE/gow3_pc/out/gpu/libgow3gpu.so" \\
-            "$STAGE/gow3_pc/out/libSDL3.so.0"; do
+          for elf in "$STAGE/gow3_pc/out/gow3-probe" "$STAGE/gow3_pc/out/gow3-gpu-capabilities" "$STAGE/gow3_pc/out/gpu/libgow3gpu.so" "$STAGE/gow3_pc/out/libSDL3.so.0"; do
             check_isa_level "$elf"
             while IFS= read -r dep; do
               [[ -f "$dep" ]] && check_isa_level "$dep"
-            done < <(ldd "$elf" | awk '{ for (i=1; i<=NF; ++i) if ($i ~ /^\\//) print $i }' | sort -u)
+            done < <(ldd "$elf" | awk '{ for (i=1; i<=NF; ++i) if (index($i, "/") == 1) print $i }' | sort -u)
           done
           chmod 755 "$STAGE/Start-TLOU-Linux.sh" "$STAGE/Start-TLOU-Launcher.sh"
           export LD_LIBRARY_PATH="$STAGE/gow3_pc/out${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
