@@ -1179,9 +1179,7 @@ int main(int argc, char **argv) {
     int guest_argc=1;
     unsigned timeout_seconds = 10;
     const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL;
-#ifdef _WIN32
     const char *red_zone_file=NULL;
-#endif
     const char *app0_overlays[4]; int app0_overlay_count=0;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--cpu-only")) cpu_only = 1;
@@ -1197,11 +1195,7 @@ int main(int argc, char **argv) {
         }
         else if (!strcmp(argv[i], "--user") && i+1<argc) user_dir=argv[++i];
         else if (!strcmp(argv[i], "--patches") && i+1<argc) patch_file=argv[++i];
-#ifdef _WIN32
         else if (!strcmp(argv[i], "--red-zone") && i+1<argc) red_zone_file=argv[++i];
-#else
-        else if (!strcmp(argv[i], "--red-zone") && i+1<argc) ++i; /* no Windows red-zone table on Linux */
-#endif
         else if (!strcmp(argv[i], "--timeout") && i+1<argc) timeout_seconds=(unsigned)strtoul(argv[++i],NULL,10);
         else if (!strcmp(argv[i], "--guest-path") && i+1<argc) guest_argv[0]=argv[++i];
         else if (!strcmp(argv[i], "--guest-arg") && i+1<argc) {
@@ -1370,14 +1364,13 @@ int main(int argc, char **argv) {
             if (!executable) fail("native function is not executable");
         }
     }
-    /* The red-zone stubs follow the image (rel32 jmps reach them). */
-#ifdef _WIN32
+    /* Guest rewrite stubs follow the image (rel32 jumps reach them). On Linux the table
+     * contains ISA emulation only; Windows may also include red-zone fault protection. */
     if (red_zone_file) red_zone=red_zone_load(red_zone_file);
     if (red_zone && red_zone->rz_code_offset!=round_page(size)) {
-        printf("Red zone: protection unavailable (stub offset does not match this page size)\n");
+        printf("Guest code rewrite: unavailable (stub offset does not match this page size)\n");
         red_zone=NULL;
     }
-#endif
     const size_t red_zone_area = red_zone ? round_page(red_zone_code_size(red_zone)) : 0;
     const size_t image_area = round_page(size) + red_zone_area;
     image = low_image ? allocate_low_image(image_area) : allocate(image_area);
@@ -1465,8 +1458,8 @@ int main(int argc, char **argv) {
     /* Last: a group whose bytes a patch, a hook or the TCB rewrite changed is skipped whole. */
     if (red_zone) {
         const RedZoneReport report = red_zone_apply(red_zone, image, image + round_page(size));
-        printf("Red zone: %u instructions protected in %u patches (%u through relays), %u patches skipped\n",
-               report.protected_instructions, report.groups, report.short_relays, report.skipped);
+        printf("Guest code rewrite: %u patch groups applied, %u skipped (%u red-zone instructions protected)\n",
+               report.groups, report.skipped, report.protected_instructions);
         protect(image + round_page(size), red_zone_area, 5);
     }
     protect(traps, round_page((import_count + 1) * 32), 5);
