@@ -88,6 +88,7 @@ jobs:
           xvfb-run -a python3 launcher/tlou_launcher.pyw --close-after 2
 
       - name: Assemble Linux archive
+        shell: bash
         run: |
           STAGE="$RUNNER_TEMP/TLOU-Remastered-linux-x86_64"
           mkdir -p "$STAGE" dist
