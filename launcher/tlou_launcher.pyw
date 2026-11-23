@@ -29,7 +29,7 @@ INI = USER / "tlou.ini"
 SWITCHES = USER / "launcher.json"
 LOG = ROOT / "analysis/tlou/boot.log"
 RUN_LOG = ROOT / "analysis/tlou/launcher-run.log"
-GAME = ROOT.parent / "CUSA00552"
+GAME = ROOT.parent / "CUSA00559"
 
 FPS = ["30", "40", "45", "50", "55", "60", "75", "90", "100", "120"]
 DISPLAY = {"borderless": "borderless", "fullscreen": "fullscreen", "windowed": "windowed"}   # text key: value
@@ -1872,9 +1872,17 @@ def control_maps(bindings):
 
 
 def key_from_event(keysym, keycode):
-    """The SDL name of a key Tk reported (keycode: the Windows virtual key); None if unknown."""
+    """The SDL name of a key Tk reported (Windows virtual key or Linux keysym)."""
     if keysym in KEYSYM_NAMES:
         return KEYSYM_NAMES[keysym]
+    if os.name != "nt":
+        aliases = {"BackSpace": "Backspace", "space": "Space", "Caps_Lock": "CapsLock",
+                   "Num_Lock": "NumLock", "Scroll_Lock": "ScrollLock",
+                   "KP_Add": "Keypad +", "KP_Subtract": "Keypad -",
+                   "KP_Multiply": "Keypad *", "KP_Decimal": "Keypad ."}
+        if keysym in aliases:
+            return aliases[keysym]
+        return keysym.upper() if len(keysym) == 1 else keysym
     try:
         scan = ctypes.windll.user32.MapVirtualKeyW(keycode, 0)   # MAPVK_VK_TO_VSC
     except (AttributeError, OSError):
@@ -1883,19 +1891,19 @@ def key_from_event(keysym, keycode):
 
 
 def key_label(name):
-    """A key's text in Portuguese (translated by the caller): the character the player's keyboard
-    layout has at that place for letters, digits and signs, else the SDL name."""
+    """A readable label for the selected key."""
     if name in KEY_LABELS:
         return KEY_LABELS[name]
-    scan = next((s for s, n in SCAN_NAMES.items() if n.lower() == name.lower()), None)
-    if scan is not None and len(SCAN_NAMES[scan]) == 1:
-        try:
-            user32 = ctypes.windll.user32
-            char = user32.MapVirtualKeyW(user32.MapVirtualKeyW(scan, 1), 2) & 0x7FFF   # VSC_TO_VK, VK_TO_CHAR
-            if char > 32:
-                return chr(char).upper()
-        except (AttributeError, OSError):
-            pass
+    if os.name == "nt":
+        scan = next((s for s, n in SCAN_NAMES.items() if n.lower() == name.lower()), None)
+        if scan is not None and len(SCAN_NAMES[scan]) == 1:
+            try:
+                user32 = ctypes.windll.user32
+                char = user32.MapVirtualKeyW(user32.MapVirtualKeyW(scan, 1), 2) & 0x7FFF
+                if char > 32:
+                    return chr(char).upper()
+            except (AttributeError, OSError):
+                pass
     return name.upper() if len(name) == 1 else name
 
 
@@ -1996,7 +2004,9 @@ def make_game_ico(game, destination):
 
 
 def make_shortcut(link, target, icon):
-    """A Windows shortcut through the shell's own COM object: the paths go by environment."""
+    """Create a Windows shortcut through the shell's COM object."""
+    if os.name != "nt":
+        return False
     command = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:TLOU_LINK); $s.TargetPath = $env:TLOU_TARGET; "
                "$s.WorkingDirectory = $env:TLOU_DIR; $s.IconLocation = $env:TLOU_ICON; $s.Save()")
     env = dict(os.environ, TLOU_LINK=str(link), TLOU_TARGET=str(target), TLOU_DIR=str(Path(target).parent), TLOU_ICON=str(icon))
@@ -2008,10 +2018,11 @@ def make_shortcut(link, target, icon):
 
 
 def game_shortcut(game):
-    """In a package, whose exe has no icon: a shortcut beside it with the icon of the player's game."""
+    """Create Windows shortcuts with the icon of the player's own game dump."""
+    if os.name != "nt":
+        return False
     launcher_exe = starter_exe()
     g_exe = game_exe()
-
     if (launcher_exe is None or ICON.is_file()) or (g_exe is None or ICON.is_file()):
         return False
     ico = USER / "game-icon.ico"
@@ -2060,7 +2071,7 @@ def game_env(switches, base=None, overrides=None, folders=None):
 # The game's shader and pipeline caches in the cache folder: <serial> (shaders and pipeline
 # binaries), <serial>.gpu-<n> (another GPU's, kept aside) and <serial>.zip (archived mode). Only
 # these are cleared, never the rest of a folder the player chose.
-CACHE_SERIAL = "CUSA00552"
+CACHE_SERIAL = "CUSA00559"
 
 
 def cache_entries(folder):
@@ -2072,10 +2083,16 @@ def cache_entries(folder):
 
 
 def recycle(paths):
-    """Moves the paths to the Recycle Bin (SHFileOperationW, FO_DELETE with FOF_ALLOWUNDO): never a
-    permanent delete. True when it worked."""
+    """Move cache entries to the system trash; never permanently delete them."""
     if not paths:
         return True
+    if os.name != "nt":
+        try:
+            subprocess.run(["gio", "trash", *(str(Path(p)) for p in paths)], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return not any(Path(p).exists() for p in paths)
+        except (OSError, subprocess.SubprocessError):
+            return False
     from ctypes import wintypes
 
     class SHFILEOPSTRUCTW(ctypes.Structure):
@@ -2098,6 +2115,12 @@ def python_exe():
 
 
 def game_running():
+    if os.name != "nt":
+        try:
+            return subprocess.run(["pgrep", "-f", "[g]ow3-probe"], stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL).returncode == 0
+        except OSError:
+            return False
     no_window = 0x08000000
     try:
         out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq gow3-probe.exe", "/NH"], capture_output=True,
@@ -2121,6 +2144,9 @@ SDL_TOUCHPAD, SDL_MISC1 = 20, 15   # MISC1: Share/Capture on Xbox Series pads, t
 
 
 def sdl_candidates():
+    if os.name != "nt":
+        yield ROOT / "gow3_pc/out/libSDL3.so.0"
+        return
     yield ROOT / "gow3_pc/out/SDL3.dll"
     yield Path(os.environ.get("MSYS2_ROOT", "C:/msys64")) / "clang64/bin/SDL3.dll"
 
@@ -2617,8 +2643,9 @@ class Launcher(tk.Tk):
     WIDTH, HEIGHT = 1180, 690   # 690: room for Video memory (14 Nov 2026)
 
     def __init__(self, seconds=0):
-        # Its own taskbar entry and icon, not those of pythonw.exe.
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TLOU.Remastered.Launcher")
+        # Give the Windows launcher its own taskbar identity.
+        if os.name == "nt":
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TLOU.Remastered.Launcher")
         super().__init__()
         self.seconds = seconds
         self.process = None
@@ -2645,12 +2672,13 @@ class Launcher(tk.Tk):
         self.update_note = None   # (text key, values) of the status line: an update found or on its way
         self.build()
         self.refresh()
-        self.after(3000, lambda: threading.Thread(target=updater.cleanup, args=(ROOT,), daemon=True).start())
-        self.after(1000, self.check_updates)
+        if os.name == "nt":
+            self.after(3000, lambda: threading.Thread(target=updater.cleanup, args=(ROOT,), daemon=True).start())
+            self.after(1000, self.check_updates)
 
     def set_icon(self):
-        """The window's icon, also for the windows opened from this one."""
-        if ICON.is_file():
+        """Set the window icon from the game dump when available."""
+        if ICON.is_file() and os.name == "nt":
             self.iconbitmap(default=str(ICON))
             return
         game = game_folder(self.folders)
@@ -2661,7 +2689,8 @@ class Launcher(tk.Tk):
                 self.iconphoto(True, self.game_icon)
             except tk.TclError:
                 pass
-            threading.Thread(target=game_shortcut, args=(game,), daemon=True).start()
+            if os.name == "nt":
+                threading.Thread(target=game_shortcut, args=(game,), daemon=True).start()
 
     def t(self, key):
         return TEXTS[self.language][key]
@@ -2849,7 +2878,8 @@ class Launcher(tk.Tk):
         game = game_folder(self.folders)
         if not (game / "eboot.bin").is_file():
             return self.t("no_game").format(game)
-        if not (ROOT / "gow3_pc/out/gow3-probe.exe").is_file():
+        runtime = ROOT / "gow3_pc/out" / ("gow3-probe.exe" if os.name == "nt" else "gow3-probe")
+        if not runtime.is_file():
             return self.t("no_exe")
         return ""
 
@@ -2913,21 +2943,29 @@ class Launcher(tk.Tk):
             return
         self.play_button.config(state="disabled", text=self.t("starting"), bg=DISABLED)
         env = game_env(self.switches(), overrides=self.overrides, folders=self.folders)
+        if os.name != "nt":
+            runtime_dir = ROOT / "gow3_pc/out"
+            env["LD_LIBRARY_PATH"] = str(runtime_dir) + (os.pathsep + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+            env["PYTHONPATH"] = str(runtime_dir / "pydeps") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         if self.profile.get():
             Path(PROFILE_ENV["GOW3_DUMP_DIR"]).mkdir(parents=True, exist_ok=True)
         RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
         with RUN_LOG.open("w", encoding="utf-8") as output:
+            options = {}
+            if os.name == "nt":
+                options["creationflags"] = 0x08000000
             self.process = subprocess.Popen(
                 game_command(python_exe(), self.folders, self.seconds), cwd=ROOT, env=env,
-                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, creationflags=0x08000000)
+                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, **options)
 
     def note(self):
         key, *values = self.update_note
         return self.t(key).format(*values)
 
     def check_updates(self):
-        """Looks for a newer release in the background; a copy run from the source tree (no VERSION)
-        is never updated. Offline or GitHub's rate limit: nothing is shown."""
+        """Checks Windows release updates; Linux uses the Linux workflow artifact."""
+        if os.name != "nt":
+            return
         current = updater.installed_version(ROOT)
         if current is None or self.update_busy:
             return
@@ -3879,8 +3917,15 @@ class Launcher(tk.Tk):
         area.change = change    # (tests)
 
     def open_log(self):
-        if LOG.is_file():
+        if not LOG.is_file():
+            return
+        if os.name == "nt":
             os.startfile(LOG)
+        else:
+            try:
+                subprocess.Popen(["xdg-open", str(LOG)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
 
 
 def main():
