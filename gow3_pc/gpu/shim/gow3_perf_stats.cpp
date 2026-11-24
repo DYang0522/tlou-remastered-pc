@@ -185,10 +185,15 @@ void Run(const Vulkan::Instance* instance) {
 }
 #else
 void Run(const Vulkan::Instance* instance) {
+    constexpr double GiB = 1024.0 * 1024.0 * 1024.0;
     while (true) {
         WaitWhileHidden();
         Sample s;
         s.gpu_name = std::string(instance->GetModelName());
+        if (instance->CanReportMemoryUsage()) {
+            s.vram_used_gb = double(instance->GetDeviceMemoryUsage()) / GiB;
+            s.vram_total_gb = double(instance->GetDeviceMemoryBudgetNow()) / GiB;
+        }
         {
             std::scoped_lock lock{mutex};
             latest = std::move(s);
