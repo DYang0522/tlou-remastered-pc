@@ -779,7 +779,7 @@ static int sample_mouse(PadData *d) {
     /* 10 Nov 2026: The Last of Us has an aim camera hook too (runtime_mouselook.c). 11 Nov: its
      * pad is read about twice per frame (100 reads/s, the hooks 50 calls/s), so history never
      * reached 15 there: a hook called in the last 60 ms is enough. */
-    const int direct=(!aiming || runtime_mouselook_aim_recent()) && (history==15u || runtime_mouselook_camera_recent());
+    const int direct=aiming || (history==15u || runtime_mouselook_camera_recent());
     gow3gpu_mouse_look_pause(!direct);
     if (mouse_look_debug()) {
         static uint64_t debug_last; static unsigned reads, direct_reads;
