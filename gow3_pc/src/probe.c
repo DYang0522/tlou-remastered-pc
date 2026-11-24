@@ -852,8 +852,22 @@ static unsigned char *allocate_near_image(uint64_t size) {
     }
     return NULL;
 #else
-    (void)size;
-    return allocate(page_size);
+    /* The guest image is loaded below 2 GiB (--low-image), but allocate() may return
+     * a high mmap address. The entry hooks use 5-byte rel32 jumps, so their stubs
+     * must also live below 2 GiB to remain reachable from the image. */
+    void *p = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+    if (p == MAP_FAILED) return NULL;
+    const uintptr_t base = (uintptr_t)image;
+    const uintptr_t end = base + (uintptr_t)size;
+    const uintptr_t address = (uintptr_t)p;
+    const uint64_t distance = address < base ? end - address :
+                              address > end ? address - base : 0;
+    if (distance > INT32_MAX) {
+        munmap(p, page_size);
+        return NULL;
+    }
+    return p;
 #endif
 }
 /* Mouse look stub (src/runtime_mouselook.h): saves rax, rcx, rdx, rsi, rdi, r8-r11 and xmm0-7
