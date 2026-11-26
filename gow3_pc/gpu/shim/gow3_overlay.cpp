@@ -1086,10 +1086,11 @@ bool PercentRow(const char* label, std::atomic<float>& value, int lo, int hi, co
     return changed;
 }
 
-bool FactorRow(const char* label, std::atomic<float>& value, float lo, float hi, const char* help) {
+bool FactorRow(const char* label, std::atomic<float>& value, float lo, float hi, const char* help,
+               const char* format = "%.2fx") {
     Row(label);
     float v = value.load();
-    const bool changed = ImGui::SliderFloat("##value", &v, lo, hi, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+    const bool changed = ImGui::SliderFloat("##value", &v, lo, hi, format, ImGuiSliderFlags_AlwaysClamp);
     if (changed) {
         value = std::clamp(v, lo, hi);
     }
@@ -1131,8 +1132,10 @@ void ControlsTab() {
         ImGui::PopID();
         ImGui::BeginDisabled(!s.mouse);
         changed |= FactorRow("Mouse sensitivity", s.mouse_sens, 0.1f, 10.0f,
-                             "One linear raw-input multiplier for normal camera movement and aiming, both "
-                             "horizontally and vertically.");
+                             "Base raw-input multiplier shared by normal camera movement and aiming.");
+        changed |= FactorRow("Mouse aim speed", s.mouse_aim_sens, 0.1f, 5.0f,
+                             "Additional multiplier applied only while aiming, after the shared 0.022-degree "
+                             "per-count base scale. 1.0x matches normal camera speed.", "%.1fx");
         changed |= PercentRow("Mouse up/down speed", s.mouse_vertical, 25, 1000,
                               "Normal camera movement only; aiming is not affected.");
         Row("Invert mouse up/down");

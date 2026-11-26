@@ -75,17 +75,21 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         (key == "mouse" ? v.mouse : key == "mouse_invert" ? v.mouse_invert : v.mouse_invert_x) = i != 0;
         return;
     }
-    /* Same mouse controls as the Uncharted ports: one 0.1x-10x sensitivity for all views,
-     * and a separate up/down factor. Old aim/scope-only keys are accepted but ignored. */
+    /* The 0.022-degree raw-input scale is shared with the Uncharted ports. Aiming adds its own
+     * multiplier (0.1x-5x); vertical speed remains separate for normal camera movement. */
     if (key == "mouse_sens") {
         v.mouse_sens = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
+        return;
+    }
+    if (key == "mouse_aim_sens") {
+        v.mouse_aim_sens = f > 0.0f ? Clamp(f, 0.1f, 5.0f) : 1.0f;
         return;
     }
     if (key == "mouse_vertical") {
         v.mouse_vertical = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
         return;
     }
-    if (key == "mouse_aim_sens" || key == "mouse_scope_sens") return;
+    if (key == "mouse_scope_sens") return;
     if (key == "walk_toggle") {
         v.walk_toggle = i != 0;
         return;
@@ -293,8 +297,9 @@ void Load() {
         {"GOW3_RCAS", "rcas"},                        {"GOW3_FRAMES_AHEAD", "frames_queued"},
         {"GOW3_PAD_MAP", "pad_map"},                  {"GOW3_KEY_MAP", "key_map"},
         {"GOW3_MOUSE_MAP", "mouse_map"},              {"GOW3_MOUSE", "mouse"},
-        {"GOW3_MOUSE_SENS", "mouse_sens"},            {"GOW3_MOUSE_INVERT", "mouse_invert"},
-        {"GOW3_MOUSE_VERTICAL", "mouse_vertical"},    {"GOW3_MOUSE_INVERT_X", "mouse_invert_x"},
+        {"GOW3_MOUSE_SENS", "mouse_sens"},            {"GOW3_MOUSE_AIM_SENS", "mouse_aim_sens"},
+        {"GOW3_MOUSE_INVERT", "mouse_invert"},         {"GOW3_MOUSE_VERTICAL", "mouse_vertical"},
+        {"GOW3_MOUSE_INVERT_X", "mouse_invert_x"},
         {"GOW3_PROMPTS", "prompts"},                  {"GOW3_STICK_SPEED", "stick_speed"},
         {"GOW3_WALK_TOGGLE", "walk_toggle"},          {"GOW3_WALK_SPEED", "walk_speed"},
         {"GOW3_VIBRATION", "vibration"},
@@ -458,8 +463,8 @@ KeyValues Current() {
     Append(text, "mouse=%d\nmouse_sens=%.2f\nmouse_invert=%d\nprompts=%s\nstick_speed=%.2f\n",
            int(v.mouse.load()), v.mouse_sens.load(), int(v.mouse_invert.load()), PromptsName(v.prompts),
            v.stick_speed.load());
-    Append(text, "mouse_vertical=%.2f\nmouse_invert_x=%d\n",
-           v.mouse_vertical.load(), int(v.mouse_invert_x.load()));
+    Append(text, "mouse_aim_sens=%.2f\nmouse_vertical=%.2f\nmouse_invert_x=%d\n",
+           v.mouse_aim_sens.load(), v.mouse_vertical.load(), int(v.mouse_invert_x.load()));
     Append(text, "walk_toggle=%d\nwalk_speed=%.2f\nvibration=%d\n", int(v.walk_toggle.load()), v.walk_speed.load(),
            int(v.vibration.load()));
     {
@@ -556,7 +561,7 @@ extern "C" int gow3gpu_controls_mouse_invert(void) {
 }
 
 extern "C" float gow3gpu_controls_mouse_aim_sens(void) {
-    return 1.0f; // Legacy API: aiming uses the shared mouse sensitivity now.
+    return Gow3Settings::Get().mouse_aim_sens;
 }
 
 extern "C" float gow3gpu_controls_mouse_scope_sens(void) {
@@ -631,8 +636,8 @@ extern "C" int gow3gpu_pc_setting(int setting) {
     case GOW3_PC_ANTI_ALIASING: return AntiAliasingIndex();
     case GOW3_PC_SHARPENING: return s.rcas_strength;
     case GOW3_PC_PERF_OVERLAY: return s.show_fps ? 1 : 0;
-    case GOW3_PC_MOUSE_SENS:
-    case GOW3_PC_MOUSE_AIM_SENS: return Percent(s.mouse_sens);
+    case GOW3_PC_MOUSE_SENS: return Percent(s.mouse_sens);
+    case GOW3_PC_MOUSE_AIM_SENS: return Percent(s.mouse_aim_sens);
     case GOW3_PC_MOUSE_SCOPE_SENS: return 100;
     case GOW3_PC_MOUSE_VERTICAL: return Percent(s.mouse_vertical);
     case GOW3_PC_MOUSE_INVERT: return s.mouse_invert ? 1 : 0;
@@ -693,8 +698,9 @@ extern "C" void gow3gpu_pc_setting_set(int setting, int value) {
     }
     case GOW3_PC_SHARPENING: s.rcas_strength = std::clamp(value, 0, 100); break;
     case GOW3_PC_PERF_OVERLAY: s.show_fps = value != 0; break;
-    case GOW3_PC_MOUSE_SENS:
-    case GOW3_PC_MOUSE_AIM_SENS: s.mouse_sens = std::clamp(value, 10, 1000) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_SENS: s.mouse_sens = std::clamp(value, 10, 1000) / 100.0f; controls = true; break;
+    case GOW3_PC_MOUSE_AIM_SENS:
+        s.mouse_aim_sens = std::clamp(value, 10, 500) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_SCOPE_SENS: break; // Legacy setting ID: no independent scope sensitivity.
     case GOW3_PC_MOUSE_VERTICAL: s.mouse_vertical = std::clamp(value, 25, 1000) / 100.0f; controls = true; break;
     case GOW3_PC_MOUSE_INVERT: s.mouse_invert = value != 0; controls = true; break;

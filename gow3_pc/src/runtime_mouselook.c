@@ -70,6 +70,11 @@ static float look_scale(void) {
     const float s = gow3gpu_controls_mouse_sens();
     return 0.0003839724f * (s > 0.0f ? s : 1.0f);
 }
+/* Keep the same 0.022-degree base scale; the restored aim slider is only an extra multiplier. */
+static float aim_look_scale(void) {
+    const float aim = gow3gpu_controls_mouse_aim_sens();
+    return look_scale() * (aim > 0.0f ? aim : 1.0f);
+}
 static float look_invert_x(void) { return gow3gpu_controls_mouse_invert_x() ? -1.0f : 1.0f; }
 static float look_invert_y(void) { return gow3gpu_controls_mouse_invert() ? -1.0f : 1.0f; }
 /* Up/down speed applies to normal camera movement only, not the direct aim camera. */
@@ -345,8 +350,8 @@ static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stic
     char extra[160] = "";
     if (took && (dx != 0.0f || dy != 0.0f) && isfinite(direction[0]) && isfinite(direction[1]) &&
         isfinite(direction[2])) {
-        /* Aim and normal camera movement use the same raw-input scale. */ 
-        const float per_count = look_scale();
+        /* Aim keeps the shared 0.022-degree base scale, with its own adjustable multiplier. */
+        const float per_count = aim_look_scale();
         if (dx != 0.0f) {
             const float angle = -dx * per_count * look_invert_x();
             turn_about(direction, up, angle);
