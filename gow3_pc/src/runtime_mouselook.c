@@ -65,18 +65,17 @@ static uint64_t now_ms(void) {
     return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
 }
 
-/* Radians per mouse count at sensitivity 1 (the settings' mouse sensitivity scales it, live;
- * 0.0011 rad is about 0.063 degrees: a 2,000-count swipe turns about 126 degrees). */
-static float look_scale(int aiming) {
+/* Radians per raw mouse count at sensitivity 1: 0.022 degrees, matching the Uncharted ports. */
+static float look_scale(void) {
     const float s = gow3gpu_controls_mouse_sens();
-    const float aim = aiming ? gow3gpu_controls_mouse_aim_sens() : 1.0f;
-    return 0.0011f * (s > 0.0f ? s : 1.0f) * (aim > 0.0f ? aim : 1.0f);
+    return 0.0003839724f * (s > 0.0f ? s : 1.0f);
 }
 static float look_invert_x(void) { return gow3gpu_controls_mouse_invert_x() ? -1.0f : 1.0f; }
-/* Up/down: the invert switch and the vertical speed (settings, Controls tab). */
+static float look_invert_y(void) { return gow3gpu_controls_mouse_invert() ? -1.0f : 1.0f; }
+/* Up/down speed applies to normal camera movement only, not the direct aim camera. */
 static float look_vertical(void) {
     const float v = gow3gpu_controls_mouse_vertical();
-    return (gow3gpu_controls_mouse_invert() ? -1.0f : 1.0f) * (v > 0.0f ? v : 1.0f);
+    return look_invert_y() * (v > 0.0f ? v : 1.0f);
 }
 
 /* ---- The Last of Us Remastered 1.11 ---------------------------------------------------------- */
@@ -234,7 +233,7 @@ static ABI void *tlou_camera_input(unsigned char *camera, const float *stick, vo
     const int took = frame_look(camera, frame, &dx, &dy);
     float asked = 0.0f;
     if (took && (dx != 0.0f || dy != 0.0f)) {
-        const float per_count = look_scale(0);
+        const float per_count = look_scale();
         /* the yaw lock the stick path respects (scripted moments) */
         if (dx != 0.0f && !camera[0x1d0 + 0x28]) {
             const float angle = -dx * per_count * look_invert_x();
@@ -346,23 +345,8 @@ static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stic
     char extra[160] = "";
     if (took && (dx != 0.0f || dy != 0.0f) && isfinite(direction[0]) && isfinite(direction[1]) &&
         isfinite(direction[2])) {
-        /* 19 Nov 2026 (GitHub #168, scopes felt much faster): the controller lives at camera +
-         * 0x1d0 of its aim camera (camera-zoom2), whose shown field of view is at camera + 0x180
-         * (60 degrees for normal aiming, 75 for the third-person camera; a scope's is far
-         * narrower). The turn per count follows the view: tan(fov / 2) / tan(30 degrees), so
-         * normal aiming is unchanged and a scope moves the crosshair across the screen as fast. */
-        float zoom = 1.0f;
-        const float fov = *(const float *)(controller - 0x1d0 + 0x180);
-        if (isfinite(fov) && fov > 1.0f && fov < 170.0f) {
-            zoom = tanf(fov * 0.5f * 0.017453292f) / 0.57735027f;
-            zoom = zoom < 0.02f ? 0.02f : zoom > 2.0f ? 2.0f : zoom;
-        }
-        /* a scope (field of view under 45 degrees): the settings' scope sensitivity too, whose
-         * 100% is a fifth of the zoom's slowdown (20 Nov 2026: the player's 20% in the sniper
-         * scene made the default) */
-        const float scope = gow3gpu_controls_mouse_scope_sens();
-        if (isfinite(fov) && fov < 45.0f && scope > 0.0f) zoom *= 0.2f * scope;
-        const float per_count = look_scale(1) * zoom;
+        /* Aim and normal camera movement use the same raw-input scale. */ 
+        const float per_count = look_scale();
         if (dx != 0.0f) {
             const float angle = -dx * per_count * look_invert_x();
             turn_about(direction, up, angle);
@@ -373,7 +357,7 @@ static ABI void *tlou_aim_input(void *out, unsigned char *controller, void *stic
             float flat[3] = {direction[0] - up[0] * along, direction[1] - up[1] * along, direction[2] - up[2] * along};
             const float flat_length = sqrtf(dot3(flat, flat));
             if (flat_length > 1e-4f && length > 1e-4f) {
-                float elevation = atan2f(along, flat_length) - dy * per_count * look_vertical();
+                float elevation = atan2f(along, flat_length) - dy * per_count * look_invert_y();
                 const float limit = 80.0f * 0.017453292f;
                 elevation = elevation > limit ? limit : elevation < -limit ? -limit : elevation;
                 const float f = length * cosf(elevation) / flat_length, u = length * sinf(elevation);
