@@ -73,7 +73,7 @@ static float look_scale(void) {
 /* Keep the same 0.022-degree base scale; the restored aim slider is only an extra multiplier. */
 static float aim_look_scale(void) {
     const float aim = gow3gpu_controls_mouse_aim_sens();
-    return look_scale() * (aim > 0.0f ? aim : 1.0f);
+    return 0.0003839724f * (aim > 0.0f ? aim : 1.0f);
 }
 static float look_invert_x(void) { return gow3gpu_controls_mouse_invert_x() ? -1.0f : 1.0f; }
 static float look_invert_y(void) { return gow3gpu_controls_mouse_invert() ? -1.0f : 1.0f; }

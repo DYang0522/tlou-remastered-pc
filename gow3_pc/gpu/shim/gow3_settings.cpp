@@ -75,8 +75,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         (key == "mouse" ? v.mouse : key == "mouse_invert" ? v.mouse_invert : v.mouse_invert_x) = i != 0;
         return;
     }
-    /* The 0.022-degree raw-input scale is shared with the Uncharted ports. Aiming adds its own
-     * multiplier (0.1x-5x); vertical speed remains separate for normal camera movement. */
+    /* The 0.022-degree raw-input scale is shared with the Uncharted ports. Aiming has an
+     * independent sensitivity (0.1x-5x); vertical speed remains separate for normal camera movement. */
     if (key == "mouse_sens") {
         v.mouse_sens = f > 0.0f ? Clamp(f, 0.1f, 10.0f) : 1.0f;
         return;

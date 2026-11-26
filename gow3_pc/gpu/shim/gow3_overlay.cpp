@@ -1134,8 +1134,9 @@ void ControlsTab() {
         changed |= FactorRow("Mouse sensitivity", s.mouse_sens, 0.1f, 10.0f,
                              "Base raw-input multiplier shared by normal camera movement and aiming.");
         changed |= FactorRow("Mouse aim speed", s.mouse_aim_sens, 0.1f, 5.0f,
-                             "Additional multiplier applied only while aiming, after the shared 0.022-degree "
-                             "per-count base scale. 1.0x matches normal camera speed.", "%.1fx");
+                             "Independent raw-input sensitivity used only while aiming; it does not multiply "
+                             "the normal camera sensitivity. Uses the same 0.022-degree per-count base scale.",
+                             "%.1fx");
         changed |= PercentRow("Mouse up/down speed", s.mouse_vertical, 25, 1000,
                               "Normal camera movement only; aiming is not affected.");
         Row("Invert mouse up/down");
