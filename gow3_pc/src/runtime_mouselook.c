@@ -70,7 +70,7 @@ static float look_scale(void) {
     const float s = gow3gpu_controls_mouse_sens();
     return 0.0003839724f * (s > 0.0f ? s : 1.0f);
 }
-/* Keep the same 0.022-degree base scale; the restored aim slider is only an extra multiplier. */
+/* Aim uses the same 0.022-degree base scale with its own independent sensitivity. */
 static float aim_look_scale(void) {
     const float aim = gow3gpu_controls_mouse_aim_sens();
     return 0.0003839724f * (aim > 0.0f ? aim : 1.0f);

@@ -1132,7 +1132,7 @@ void ControlsTab() {
         ImGui::PopID();
         ImGui::BeginDisabled(!s.mouse);
         changed |= FactorRow("Mouse sensitivity", s.mouse_sens, 0.1f, 10.0f,
-                             "Base raw-input multiplier shared by normal camera movement and aiming.");
+                             "Raw-input sensitivity for normal camera movement. Aiming has its own independent setting.");
         changed |= FactorRow("Mouse aim speed", s.mouse_aim_sens, 0.1f, 5.0f,
                              "Independent raw-input sensitivity used only while aiming; it does not multiply "
                              "the normal camera sensitivity. Uses the same 0.022-degree per-count base scale.",
