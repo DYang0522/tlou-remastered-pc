@@ -1118,15 +1118,11 @@ void ControlsTab() {
         Help("The mouse turns the camera and presses its buttons' actions. Off: the mouse is left alone.");
         ImGui::PopID();
         ImGui::BeginDisabled(!s.mouse);
-        changed |= PercentRow("Mouse sensitivity", s.mouse_sens, 10, 500, "How far the camera turns per mouse movement.");
-        changed |= PercentRow("Mouse aim sensitivity", s.mouse_aim_sens, 10, 500,
-                              "While aiming (the aim button held): the mouse sensitivity times this. Below 100% "
-                              "makes aiming finer.");
-        changed |= PercentRow("Mouse scope sensitivity", s.mouse_scope_sens, 10, 200,
-                              "With a scope (sniper rifle, scoped weapons): the aim sensitivity times this, on "
-                              "top of the zoom's own slowdown. Below 100% makes scoped aiming finer.");
-        changed |= PercentRow("Mouse up/down speed", s.mouse_vertical, 25, 300,
-                              "Looking up and down compared with left and right.");
+        changed |= FactorRow("Mouse sensitivity", s.mouse_sens, 0.1f, 10.0f,
+                             "One linear raw-input multiplier for normal camera movement and aiming, both "
+                             "horizontally and vertically.");
+        changed |= PercentRow("Mouse up/down speed", s.mouse_vertical, 25, 1000,
+                              "Normal camera movement only; aiming is not affected.");
         Row("Invert mouse up/down");
         bool invert = s.mouse_invert;
         if (ImGui::Checkbox("##value", &invert)) {
