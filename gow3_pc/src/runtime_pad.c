@@ -705,11 +705,9 @@ int runtime_pad_aim_held(void) { return __atomic_load_n(&pad_aim_held,__ATOMIC_R
 static int sample_mouse(PadData *d) {
     runtime_mouselook_set_stick_boost(1.0f); /* more only below, for a mouse past the full stick */
     if (!mouse_enabled()) return 0;
-    /* 20 Oct 2026: the aim sensitivity while aiming, the up/down speed and the left/right invert
-     * (the mouse look handlers apply the same). */
-    const float aim=runtime_pad_aim_held() ? gow3gpu_controls_mouse_aim_sens() : 1.0f;
+    /* The same shared mouse sensitivity as the Uncharted ports. */
     const float vertical=gow3gpu_controls_mouse_vertical();
-    const float sensitivity=(controls.mouse_sens>0.0f ? controls.mouse_sens : 1.0f)*(aim>0.0f ? aim : 1.0f);
+    const float sensitivity=controls.mouse_sens>0.0f ? controls.mouse_sens : 1.0f;
     const float invert=controls.mouse_invert ? -1.0f : 1.0f;
     const float invert_x=gow3gpu_controls_mouse_invert_x() ? -1.0f : 1.0f;
     float dx=0, dy=0; unsigned held=0;
@@ -762,10 +760,8 @@ static int sample_mouse(PadData *d) {
         }
     }
     if (!captured || now-last_motion>60000) { vx=vy=0; return used; }
-    /* Mouse look drives the game's camera directly (src/runtime_mouselook.c): no stick. While
-     * aiming the games turn their aim cameras by the right stick, so the mouse is the stick then
-     * (20 Oct 2026: the follow camera's hook kept being called while aiming, which switched this
-     * path off most of the time: aiming with the mouse was choppy). */
+    /* Mouse look drives the game's camera directly (src/runtime_mouselook.c). Aiming is direct-only;
+     * if its hook is unavailable, mouse movement is intentionally not converted to a virtual stick. */
     const int aiming=runtime_pad_aim_held();
     /* The follow camera's hook turns the camera directly only while that camera runs at every pad
      * read (the last 4); climbing, hanging, scripted and aim cameras read the stick, and the hook
@@ -776,17 +772,15 @@ static int sample_mouse(PadData *d) {
     const unsigned calls=gow3gpu_mouse_look_calls();
     history=((history<<1)|(calls!=seen_calls ? 1u : 0u))&15u;
     seen_calls=calls;
-    /* 10 Nov 2026: The Last of Us has an aim camera hook too (runtime_mouselook.c). 11 Nov: its
-     * pad is read about twice per frame (100 reads/s, the hooks 50 calls/s), so history never
-     * reached 15 there: a hook called in the last 60 ms is enough. */
-    const int direct=aiming ? runtime_mouselook_aim_recent() :
-                       (history==15u || runtime_mouselook_camera_recent());
+    /* Aiming is direct-only: never switch an L2 mouse movement back into virtual-stick input.
+     * Outside aiming, keep the normal camera's existing direct/stick routing. */
+    const int direct=aiming ? 1 : (history==15u || runtime_mouselook_camera_recent());
     gow3gpu_mouse_look_pause(!direct);
     if (mouse_look_debug()) {
         static uint64_t debug_last; static unsigned reads, direct_reads;
         ++reads; direct_reads+=direct;
         if (now-debug_last>=1000000) {
-            printf("Mouse debug: %u pad reads, %u with the camera hook (direct), aiming %d, stick %.2f %.2f\n",
+            printf("Mouse debug: %u pad reads, %u direct, aiming %d, stick %.2f %.2f\n",
                    reads,direct_reads,aiming,vx,vy);
             fflush(stdout);
             debug_last=now; reads=direct_reads=0;
