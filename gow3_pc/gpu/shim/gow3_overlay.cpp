@@ -1086,6 +1086,18 @@ bool PercentRow(const char* label, std::atomic<float>& value, int lo, int hi, co
     return changed;
 }
 
+bool FactorRow(const char* label, std::atomic<float>& value, float lo, float hi, const char* help) {
+    Row(label);
+    float v = value.load();
+    const bool changed = ImGui::SliderFloat("##value", &v, lo, hi, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+    if (changed) {
+        value = std::clamp(v, lo, hi);
+    }
+    Help(help);
+    ImGui::PopID();
+    return changed;
+}
+
 void ControlsTab() {
     auto& s = Gow3Settings::Get();
     if (!control_bindings_loaded) {
